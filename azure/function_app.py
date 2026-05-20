@@ -508,7 +508,94 @@ Rules:
 
 
 # ============================================================
-# ENDPOINT 6: WORKER PROFILE — Get/set preferences
+# ENDPOINT 6: CHAT — AI conversation for worker help
+# ============================================================
+
+@app.route(route="chat", methods=["POST"])
+def chat(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    AI conversation endpoint for in-task help.
+
+    Input:  { "message": "...", "step": "...", "workerName": "Dylan" }
+    Output: { "reply": "..." }
+    """
+    try:
+        body = req.get_json()
+        message = body.get("message", "")
+        step = body.get("step", "")
+        worker_name = body.get("workerName", "Dylan")
+
+        if not message:
+            return func.HttpResponse(
+                json.dumps({"error": "No message provided"}),
+                status_code=400,
+                mimetype="application/json"
+            )
+
+        # Prefer Azure AI Foundry credentials, fall back to legacy Azure OpenAI
+        api_key = os.environ.get("FOUNDRY_API_KEY") or os.environ.get("OPENAI_KEY")
+        endpoint = os.environ.get("FOUNDRY_ENDPOINT") or os.environ.get("OPENAI_ENDPOINT")
+        model = os.environ.get("FOUNDRY_MODEL", "gpt-4o")
+
+        if not api_key:
+            return func.HttpResponse(
+                json.dumps({"reply": "I'm here to help. The AI service needs to be configured — ask a supervisor to add the API key."}),
+                mimetype="application/json"
+            )
+
+        from openai import AzureOpenAI
+
+        client = AzureOpenAI(
+            api_key=api_key,
+            azure_endpoint=endpoint,
+            api_version="2024-05-01-preview",
+        )
+
+        system_prompt = f"""You are BuddyWork, a friendly AI job coach helping {worker_name}, a library worker.
+Current task step: {step}
+
+Task context:
+- Shelf Scan at Aisle 5, Fiction A-F
+- Books are sorted alphabetically: FIC ADA, FIC BRA, FIC CLA, FIC DIC, FIC HER, FIC LEG
+- FIC HER and FIC DIC are swapped and need to be fixed
+- D comes before H alphabetically
+
+Response rules:
+- Maximum 2 short sentences (under 12 words each)
+- Use plain, concrete language — no jargon
+- One instruction per sentence
+- Be calm and factual, never performative
+- Never say "great job", "awesome", or "fantastic"
+- If the worker seems confused or distressed, acknowledge it first"""
+
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": message},
+            ],
+            max_tokens=80,
+            temperature=0.3,
+        )
+
+        reply = response.choices[0].message.content.strip()
+
+        return func.HttpResponse(
+            json.dumps({"reply": reply}),
+            mimetype="application/json"
+        )
+
+    except Exception as e:
+        logging.error(f"Chat error: {str(e)}")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            status_code=500,
+            mimetype="application/json"
+        )
+
+
+# ============================================================
+# ENDPOINT 7: WORKER PROFILE — Get/set preferences
 # ============================================================
 
 @app.route(route="worker", methods=["GET", "POST"])
