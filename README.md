@@ -21,7 +21,7 @@ The app demo focuses on a **library shelf scanning task**: a worker scans a book
 ## Project Structure
 
 ```
-buddywork-app/
+uc3-upskilling-for-the-ai-economy/
 ├── src/                        # React frontend
 │   ├── App.jsx                 # Main app (final version)
 │   ├── App_v1.jsx              # V1 — initial prototype
@@ -38,7 +38,7 @@ buddywork-app/
 │   ├── function_app.py         # Python API (OCR, sorting, tasks, voice)
 │   ├── requirements.txt        # Python dependencies
 │   ├── host.json               # Azure Functions config
-│   └── local.settings.json     # Local dev settings (template)
+│   └── local.settings.example.json  # Local dev settings template
 ├── docs/                       # Presentation materials
 │   ├── INTEGRATION_GUIDE.md    # Unity + React integration guide
 │   ├── DEMO_SCRIPT.md          # 4-minute presentation script
@@ -55,7 +55,7 @@ buddywork-app/
 | AR Module | Unity WebGL | Camera feed, OCR overlay, book highlighting |
 | Backend | Azure Functions (Python) | Sorting engine, task API, voice script generation |
 | Vision | Azure AI Vision | OCR to read spine labels from shelf photos |
-| AI Coach | Azure OpenAI | Adaptive voice scripts calibrated to support level |
+| AI Coach | Azure AI Foundry (GPT-5.4 mini) | Adaptive voice scripts calibrated to support level |
 | Database | Cosmos DB (Serverless) | Worker profiles, task logs, progress streaks |
 | Storage | Azure Blob Storage | Shelf photos, task instruction images |
 | Hosting | Azure Static Web Apps | Frontend + Unity WebGL build |
@@ -86,7 +86,6 @@ Built from autism UX research, not retrofitted accessibility:
 
 ### Frontend (React)
 ```bash
-cd buddywork-app
 npm install
 npm start
 ```
@@ -94,6 +93,7 @@ npm start
 ### Backend (Azure Functions)
 ```bash
 cd azure
+test -f local.settings.json || cp local.settings.example.json local.settings.json
 pip install -r requirements.txt
 func start
 ```
@@ -105,12 +105,26 @@ chmod +x azure/deploy.sh
 ./azure/deploy.sh
 
 # Deploy backend
-cd azure && func azure functionapp publish buddywork-api
+cd azure
+test -f local.settings.json || cp local.settings.example.json local.settings.json
+func azure functionapp publish buddywork-api
+cd ..
 
 # Deploy frontend
-cd .. && npm run build
+npm run build
 swa deploy ./build --app-name buddywork
 ```
+
+### Tear Down Azure Resources
+
+Run the cleanup script to remove all resources created by `deploy.sh`:
+
+```bash
+chmod +x azure/undeploy.sh
+./azure/undeploy.sh
+```
+
+The script deletes each BuddyWork resource individually and purges soft-deleted Cognitive Services (Vision, Foundry AI Services) so their names can be reused. The shared `UseCase3` resource group is preserved.
 
 ## Team
 

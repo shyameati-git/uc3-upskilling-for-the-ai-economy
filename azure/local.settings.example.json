@@ -5,8 +5,10 @@
     "AzureWebJobsStorage": "UseDevelopmentStorage=true",
     "VISION_KEY": "paste-your-key-here",
     "VISION_ENDPOINT": "https://buddywork-vision.cognitiveservices.azure.com/",
-    "OPENAI_KEY": "paste-your-key-here",
-    "OPENAI_ENDPOINT": "https://buddywork-openai.openai.azure.com/",
+    "FOUNDRY_KEY": "paste-your-key-here",
+    "FOUNDRY_ENDPOINT": "https://usecase3.cognitiveservices.azure.com/",
+    "FOUNDRY_DEPLOYMENT": "gpt-5-4-mini",
+    "FOUNDRY_MODEL_NAME": "gpt-5.4-mini",
     "COSMOS_CONNECTION": "paste-your-connection-string-here",
     "STORAGE_CONNECTION": "paste-your-connection-string-here"
   },
