@@ -44,7 +44,8 @@ function loadProfile() {
     level:    parseInt(localStorage.getItem('p_level') || '2'),
     useCase:  localStorage.getItem('p_usecase')  || 'library',
     features: JSON.parse(localStorage.getItem('p_features') || '["text","image"]'),
-    apiKey:   localStorage.getItem('p_apikey')   || '',
+    // .env REACT_APP_OPENAI_API_KEY takes priority over the Admin panel value
+    apiKey:   process.env.REACT_APP_OPENAI_API_KEY || localStorage.getItem('p_apikey') || '',
   };
 }
 function persistProfile(p) {
