@@ -1,34 +1,41 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
-const STEPS = ["welcome","overview","go_aisle","pick_shelf","camera","scanning","results","fix1","fix2","fix3","fix4","complete"];
+const STEPS = ["welcome","overview","go_aisle","pick_shelf","camera","scanning","results","fix","complete"];
 const VOICE = {
-  welcome:"Your tasks for today are ready. Choose your workplace to begin.",
-  overview:"Shelf Scan. Go to the aisle, scan the shelf, fix any books out of order. Tap Start.",
-  go_aisle:"Walk to Aisle 5 in the Fiction section. Look for the number 5 above the shelves. Tap I'm here when you arrive.",
+  welcome:   "Your tasks for today are ready. Choose your workplace to begin.",
+  overview:  "Shelf Scan. Go to the aisle, scan the shelf, fix any books out of order. Tap Start.",
+  go_aisle:  "Walk to Aisle 5 in the Fiction section. Look for the number 5 above the shelves. Tap I'm here when you arrive.",
   pick_shelf:"Point your camera at the second shelf from the top. Count from the top. One. Two. Tap Open Camera.",
-  camera:"Hold your phone steady pointing at the shelf. Tap Scan Now when ready.",
-  scanning:"Scanning. Hold still.",
-  results:"Scan complete. 4 books correct. 2 books in the wrong place. Tap Fix Them.",
-  fix1:"Take out the book labeled F I C, H E R. Hold it in your hand. Tap Done.",
-  fix2:"Take out the book labeled F I C, D I C. Hold both books. Tap Done.",
-  fix3:"Put F I C, D I C in first. D comes before H. Tap Done.",
-  fix4:"Put F I C, H E R right after it. Tap Done.",
-  complete:"Shelf is correct. 6 books checked. 2 fixed.",
+  camera:    "Hold your phone steady pointing at the shelf. Tap Scan Now when ready.",
+  scanning:  "Scanning. Hold still. GPT-4o is reading the shelf.",
+  results:   "Scan complete. Check how many books need fixing, then tap Fix Them.",
+  fix:       "Take out the highlighted book and move it to the correct position.",
+  complete:  "Shelf is correct. Great work today.",
 };
 const C = {calm:"#4D9484",calmL:"#E4F0EC",warn:"#CC8B1F",warnL:"#FFF6E5",warnB:"#EEDCB0",ok:"#4D9484",okL:"#E4F0EC",text:"#1E2D27",sub:"#5F7A6F",bg:"#F4F6F5",card:"#FFFFFF",bdr:"#D9E2DD",gold:"#B8860B",goldL:"#FFF9E8"};
-const BOOKS = [
-  {id:1,call:"FIC ADA",color:"#4A7FA8"},{id:2,call:"FIC BRA",color:"#C49360"},
-  {id:3,call:"FIC CLA",color:"#5E8E65"},{id:4,call:"FIC HER",color:"#B06040"},
-  {id:5,call:"FIC DIC",color:"#7B6BA8"},{id:6,call:"FIC LEG",color:"#9E6878"},
-];
-const FIXED = [BOOKS[0],BOOKS[1],BOOKS[2],BOOKS[4],BOOKS[3],BOOKS[5]];
-const GAP = {id:99,call:"",color:"#DCE2DE"};
-const SLOT = {id:98,call:"?",color:"#E4EAE6"};
+
+// Demo book colours used in shelf visualisation
+const BOOK_COLORS = ["#4A7FA8","#C49360","#5E8E65","#B06040","#7B6BA8","#9E6878","#4D9484","#8B6BAE"];
 
 const LVL_COLORS = {1:"#3d9e68",2:"#d4860a",3:"#c0392b"};
 const LVL_LABELS = {1:"Low Support",2:"Medium Support",3:"High Support"};
 const FEAT_ICONS  = {text:"📝",voice:"🎤",image:"📷",both:"✨"};
+
+// ── Demo scan result (fallback when no API key or no camera) ───────────────────
+function getDemoScanResult() {
+  return {
+    books: [
+      {call:"FIC ADA", title:"Adams",   status:"correct"},
+      {call:"FIC BRA", title:"Bradbury",status:"correct"},
+      {call:"FIC CLA", title:"Clarke",  status:"correct"},
+      {call:"FIC HER", title:"Herbert", status:"misplaced", shouldBeAfter:"FIC DIC", shouldBeBefore:"FIC LEG"},
+      {call:"FIC DIC", title:"Dickens", status:"misplaced", shouldBeAfter:"FIC CLA", shouldBeBefore:"FIC HER"},
+      {call:"FIC LEG", title:"Le Guin", status:"correct"},
+    ],
+    summary:"4 books correct, 2 misplaced",
+  };
+}
 
 // ── Profile persistence ────────────────────────────────────────────────────────
 function loadProfile() {
@@ -48,69 +55,159 @@ function persistProfile(p) {
   localStorage.setItem('p_apikey',   p.apiKey);
 }
 
-// ── AI coaching ────────────────────────────────────────────────────────────────
+// ── GPT-4o: AI coaching (text) ─────────────────────────────────────────────────
 async function coachCall(apiKey, level, userMessage) {
   if (!apiKey) return '(Add your OpenAI API key in Admin ⚙ to use live AI coaching.)';
-  const sys = `You are a job coach for autistic workers. Use clear, literal, positive language. One instruction at a time. No idioms. Explain WHY. End with one clear next action. Level ${level} worker (1=low support, 3=high support).`;
+  const sys = `You are a job coach for autistic workers. Use clear, literal, positive language. \
+One instruction at a time. No idioms. Explain WHY. End with one clear next action. \
+Level ${level} worker (1=low support, 3=high support).`;
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {'Content-Type':'application/json','Authorization':`Bearer ${apiKey}`},
-    body: JSON.stringify({model:'gpt-4o-mini',max_tokens:400,temperature:0.3,messages:[{role:'system',content:sys},{role:'user',content:userMessage}]}),
+    body: JSON.stringify({
+      model: 'gpt-4o',
+      max_tokens: 400,
+      temperature: 0.3,
+      messages: [{role:'system',content:sys},{role:'user',content:userMessage}],
+    }),
   });
   if (!res.ok) { const e = await res.json().catch(()=>{}); throw new Error(e?.error?.message||`API ${res.status}`); }
   const d = await res.json();
   return d.choices?.[0]?.message?.content?.trim() || 'No response.';
 }
 
+// ── GPT-4o Vision: shelf scan ──────────────────────────────────────────────────
+async function scanWithVision(apiKey, base64Image) {
+  const prompt = `You are scanning a library shelf. Read every spine label visible on the books from LEFT to RIGHT.
+
+Return ONLY valid JSON in this exact format:
+{
+  "books": [
+    {"call": "FIC ADA", "title": "Author name or title visible", "status": "correct"},
+    {"call": "FIC HER", "title": "Herbert", "status": "misplaced", "shouldBeAfter": "FIC CLA", "shouldBeBefore": "FIC LEG"}
+  ],
+  "summary": "X books correct, Y misplaced"
+}
+
+Rules:
+- List every book you can see, left to right
+- status is "correct" if alphabetically ordered, "misplaced" if out of place
+- For misplaced books, fill shouldBeAfter and shouldBeBefore with the adjacent correct call numbers
+- If a field is unknown write null`;
+
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json','Authorization':`Bearer ${apiKey}`},
+    body: JSON.stringify({
+      model: 'gpt-4o',
+      max_tokens: 800,
+      messages: [{
+        role: 'user',
+        content: [
+          {type:'text', text: prompt},
+          {type:'image_url', image_url:{url:`data:image/jpeg;base64,${base64Image}`, detail:'high'}},
+        ],
+      }],
+    }),
+  });
+  if (!res.ok) { const e = await res.json().catch(()=>{}); throw new Error(e?.error?.message||`API ${res.status}`); }
+  const d = await res.json();
+  const content = d.choices?.[0]?.message?.content?.trim() || '';
+  const match = content.match(/\{[\s\S]*\}/);
+  if (!match) throw new Error('Could not parse shelf scan response');
+  return JSON.parse(match[0]);
+}
+
+// ── Camera hook ────────────────────────────────────────────────────────────────
+function useCamera() {
+  const videoRef  = useRef(null);
+  const streamRef = useRef(null);
+  const [ready, setReady]   = useState(false);
+  const [camErr, setCamErr] = useState(null);
+
+  const start = useCallback(async () => {
+    setCamErr(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {facingMode:'environment', width:{ideal:1280}},
+        audio: false,
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.onloadedmetadata = () => setReady(true);
+      }
+    } catch(e) {
+      setCamErr(e.message);
+    }
+  }, []);
+
+  const stop = useCallback(() => {
+    streamRef.current?.getTracks().forEach(t => t.stop());
+    streamRef.current = null;
+    setReady(false);
+  }, []);
+
+  const captureFrame = useCallback(() => {
+    const v = videoRef.current;
+    if (!v || !v.videoWidth) return null;
+    const c = document.createElement('canvas');
+    c.width = v.videoWidth; c.height = v.videoHeight;
+    c.getContext('2d').drawImage(v, 0, 0);
+    return c.toDataURL('image/jpeg', 0.85).split(',')[1] || null;
+  }, []);
+
+  return {videoRef, ready, camErr, start, stop, captureFrame};
+}
+
 // ── Task dictionaries ──────────────────────────────────────────────────────────
 const COFFEE_TASKS = {
-  order:     {icon:'🧾',label:'Help me take an order',    prompt:'A customer is at the counter ready to order. Give the worker step-by-step instructions for taking the order politely and accurately.'},
-  pos:       {icon:'💻',label:'Help me use the POS',      prompt:'The worker needs to enter an order into the POS (Point of Sale) system. Give clear step-by-step instructions.'},
-  complaint: {icon:'😤',label:'Customer is upset',        prompt:"A customer is upset because their order was wrong. Give the worker a calm script and steps for handling this situation."},
-  shift:     {icon:'🧹',label:'End of shift tasks',       prompt:'It is the end of the shift at the coffee shop. Give the worker a step-by-step checklist of closing tasks.'},
+  order:     {icon:'🧾', label:'Help me take an order',   prompt:'A customer is at the counter ready to order. Give the worker step-by-step instructions for taking the order politely and accurately.'},
+  pos:       {icon:'💻', label:'Help me use the POS',     prompt:'The worker needs to enter an order into the POS (Point of Sale) system. Give clear step-by-step instructions.'},
+  complaint: {icon:'😤', label:'Customer is upset',       prompt:"A customer is upset because their order was wrong. Give the worker a calm script and steps for handling this situation."},
+  shift:     {icon:'🧹', label:'End of shift tasks',      prompt:'It is the end of the shift at the coffee shop. Give the worker a step-by-step checklist of closing tasks.'},
 };
 const SWIM_TASKS = {
-  safety:   {icon:'🛟',label:'Safety check guide',         prompt:'The swimming instructor needs to do a pool safety check before lessons start. Give a step-by-step safety checklist.'},
-  drill:    {icon:'🏊',label:'How to teach a drill',       prompt:'The swimming instructor needs to teach a basic freestyle drill to beginners. Give step-by-step instructions for how to explain and demonstrate it.'},
-  question: {icon:'🙋',label:'Swimmer asked me something', prompt:"A swimmer asked a question the instructor is not sure about. Give the instructor a calm script for how to respond when they don't know the answer."},
-  lesson:   {icon:'📋',label:"Plan today's lesson",        prompt:'The swimming instructor needs to plan a 45-minute beginner lesson. Give a clear timed lesson plan.'},
+  safety:   {icon:'🛟', label:'Safety check guide',        prompt:'The swimming instructor needs to do a pool safety check before lessons start. Give a step-by-step safety checklist.'},
+  drill:    {icon:'🏊', label:'How to teach a drill',      prompt:'The swimming instructor needs to teach a basic freestyle drill to beginners. Give step-by-step instructions for how to explain and demonstrate it.'},
+  question: {icon:'🙋', label:'Swimmer asked me something',prompt:"A swimmer asked a question the instructor is not sure about. Give the instructor a calm script for how to respond when they don't know the answer."},
+  lesson:   {icon:'📋', label:"Plan today's lesson",       prompt:'The swimming instructor needs to plan a 45-minute beginner lesson. Give a clear timed lesson plan.'},
 };
 
 // ── Voice Hook ─────────────────────────────────────────────────────────────────
 function useVoice() {
   const uRef = useRef(null);
-  const [on,setOn]       = useState(true);
-  const [spd,setSpd]     = useState(0.85);
+  const [on,setOn]         = useState(true);
+  const [spd,setSpd]       = useState(0.85);
   const [talking,setTalking] = useState(false);
   const say = useCallback((txt) => {
     if (!on || !window.speechSynthesis) return;
     window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(txt);
     u.rate = spd; u.pitch = 1;
-    u.onstart = () => setTalking(true); u.onend = () => setTalking(false); u.onerror = () => setTalking(false);
+    u.onstart=()=>setTalking(true); u.onend=()=>setTalking(false); u.onerror=()=>setTalking(false);
     const vs = window.speechSynthesis.getVoices();
     const v = vs.find(v=>v.name.includes("Samantha")) || vs.find(v=>v.name.includes("Google")&&v.lang.startsWith("en")) || vs.find(v=>v.lang.startsWith("en"));
     if (v) u.voice = v;
     uRef.current = u; window.speechSynthesis.speak(u);
   }, [on, spd]);
-  const stop = useCallback(() => { window.speechSynthesis?.cancel(); setTalking(false); }, []);
+  const stop   = useCallback(() => { window.speechSynthesis?.cancel(); setTalking(false); }, []);
   const replay = useCallback(() => {
-    if (uRef.current) {
-      window.speechSynthesis?.cancel();
-      const u = new SpeechSynthesisUtterance(uRef.current.text);
-      u.rate = spd; u.pitch = 1;
-      if (uRef.current.voice) u.voice = uRef.current.voice;
-      u.onstart = () => setTalking(true); u.onend = () => setTalking(false);
-      window.speechSynthesis.speak(u);
-    }
+    if (!uRef.current) return;
+    window.speechSynthesis?.cancel();
+    const u = new SpeechSynthesisUtterance(uRef.current.text);
+    u.rate = spd; u.pitch = 1;
+    if (uRef.current.voice) u.voice = uRef.current.voice;
+    u.onstart=()=>setTalking(true); u.onend=()=>setTalking(false);
+    window.speechSynthesis.speak(u);
   }, [spd]);
   return {say, stop, replay, talking, on, setOn, spd, setSpd};
 }
 
-// ── Shared Components ──────────────────────────────────────────────────────────
+// ── Shared UI components ───────────────────────────────────────────────────────
 const F = "'Nunito',sans-serif";
-function Btn({children, onClick, icon, secondary, small}) {
-  return <button onClick={onClick} style={{width:"100%",padding:small?"14px 20px":"20px 24px",fontSize:small?16:20,fontWeight:800,fontFamily:F,border:secondary?`2px solid ${C.bdr}`:"none",borderRadius:16,cursor:"pointer",background:secondary?C.card:C.calm,color:secondary?C.text:"#fff",boxShadow:secondary?"none":`0 4px 14px ${C.calm}30`,display:"flex",alignItems:"center",justifyContent:"center",gap:10,transition:"transform .1s"}} onMouseDown={e=>e.currentTarget.style.transform="scale(.97)"} onMouseUp={e=>e.currentTarget.style.transform="scale(1)"}>{icon&&<span style={{fontSize:small?20:24}}>{icon}</span>}{children}</button>
+function Btn({children, onClick, icon, secondary, small, disabled}) {
+  return <button onClick={onClick} disabled={disabled} style={{width:"100%",padding:small?"14px 20px":"20px 24px",fontSize:small?16:20,fontWeight:800,fontFamily:F,border:secondary?`2px solid ${C.bdr}`:"none",borderRadius:16,cursor:disabled?"not-allowed":"pointer",opacity:disabled?.6:1,background:secondary?C.card:C.calm,color:secondary?C.text:"#fff",boxShadow:secondary?"none":`0 4px 14px ${C.calm}30`,display:"flex",alignItems:"center",justifyContent:"center",gap:10,transition:"transform .1s"}} onMouseDown={e=>!disabled&&(e.currentTarget.style.transform="scale(.97)")} onMouseUp={e=>e.currentTarget.style.transform="scale(1)"}>{icon&&<span style={{fontSize:small?20:24}}>{icon}</span>}{children}</button>
 }
 function Hero({icon,text,sub}) {
   return <div style={{textAlign:"center",padding:"6px 16px"}}><div style={{fontSize:56,lineHeight:1,marginBottom:8}}>{icon}</div><div style={{fontSize:22,fontWeight:800,color:C.text,lineHeight:1.3,fontFamily:F}}>{text}</div>{sub&&<div style={{fontSize:14,color:C.sub,fontWeight:600,marginTop:5,fontFamily:F}}>{sub}</div>}</div>
@@ -122,61 +219,75 @@ function Card({children,style}) { return <div style={{background:C.card,borderRa
 function Section({title,hint,children}) {
   return <div style={{marginBottom:24}}>
     <div style={{fontSize:11,fontWeight:800,color:C.sub,letterSpacing:1,marginBottom:hint?4:10,fontFamily:F}}>{title}</div>
-    {hint && <div style={{fontSize:12,color:C.sub,fontWeight:600,marginBottom:10,fontFamily:F}}>{hint}</div>}
+    {hint&&<div style={{fontSize:12,color:C.sub,fontWeight:600,marginBottom:10,fontFamily:F}}>{hint}</div>}
     {children}
   </div>
 }
-
-// ── Check / Warning SVGs ───────────────────────────────────────────────────────
 const Chk = () => <svg width="18" height="18" viewBox="0 0 20 20"><circle cx="10" cy="10" r="9" fill={C.ok}/><path d="M6 10l3 3 5-5" stroke="#fff" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>;
 const Wrn = () => <svg width="18" height="18" viewBox="0 0 20 20"><polygon points="10,2 19,18 1,18" fill={C.warn}/><text x="10" y="15" textAnchor="middle" fill="#fff" fontSize="11" fontWeight="800">!</text></svg>;
 
-// ── Book Spine ─────────────────────────────────────────────────────────────────
-function Spine({book,status,arrow}) {
-  const m=status==="misplaced", f=status==="fixed", co=status==="correct";
-  return <div style={{display:"flex",flexDirection:"column",alignItems:"center",position:"relative"}}>
-    {arrow&&<div style={{position:"absolute",top:-30,display:"flex",flexDirection:"column",alignItems:"center",animation:"bob 2s ease-in-out infinite"}}><span style={{fontSize:10,fontWeight:800,color:C.warn,fontFamily:F}}>{arrow}</span><span style={{fontSize:14,color:C.warn}}>↓</span></div>}
-    <div style={{width:44,height:120,borderRadius:"4px 4px 2px 2px",background:`linear-gradient(180deg,${book.color},${book.color}cc)`,border:m?`3px solid ${C.warn}`:f?`3px solid ${C.ok}`:co?`3px solid ${C.ok}44`:"3px solid transparent",boxShadow:m?`0 0 10px ${C.warn}44`:"0 2px 4px #00000012",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"space-between",padding:"6px 3px",transition:"all .3s"}}>
-      <div style={{width:16,height:16,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>{(co||f)?<Chk/>:m?<Wrn/>:null}</div>
-      <span style={{writingMode:"vertical-rl",textOrientation:"mixed",fontSize:8,color:"#fff",fontWeight:800,fontFamily:F,textShadow:"0 1px 2px #00000033",letterSpacing:.5}}>{book.call}</span>
-    </div>
-    <span style={{fontSize:9,color:C.sub,marginTop:3,fontWeight:700,fontFamily:F}}>{book.call}</span>
-  </div>
-}
-function Shelf({books,statuses,arrows}) {
-  return <div style={{background:"linear-gradient(180deg,#EDE5DA,#DDD4C8)",borderRadius:12,padding:"16px 10px 10px",border:"2px solid #CFC5B8"}}>
-    <div style={{height:4,background:"#BFB3A5",borderRadius:2,marginBottom:10}}/>
-    <div style={{display:"flex",justifyContent:"center",gap:6,alignItems:"flex-end",minHeight:158,paddingTop:28}}>
-      {books.map((b,i)=><Spine key={b.id+"-"+i} book={b} status={statuses?.[i]||"none"} arrow={arrows?.[i]}/>)}
-    </div>
-    <div style={{height:4,background:"#BFB3A5",borderRadius:2,marginTop:10}}/>
+// ── Live camera view ───────────────────────────────────────────────────────────
+function LiveCamera({videoRef, ready, camErr, scanning}) {
+  return <div style={{background:"#181818",borderRadius:14,padding:14,position:"relative"}}>
+    {camErr ? (
+      <div style={{height:180,borderRadius:10,background:"#222",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8}}>
+        <span style={{fontSize:32}}>📵</span>
+        <span style={{fontSize:12,color:"#888",fontWeight:700,fontFamily:F,textAlign:"center",padding:"0 16px"}}>Camera unavailable — using demo data</span>
+      </div>
+    ) : (
+      <div style={{position:"relative",borderRadius:10,overflow:"hidden",background:"#000"}}>
+        <video ref={videoRef} autoPlay playsInline muted style={{width:"100%",display:"block",borderRadius:10,minHeight:180,objectFit:"cover"}}/>
+        {!ready && <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",background:"#111"}}>
+          <span style={{fontSize:12,color:"#888",fontWeight:700,fontFamily:F}}>Starting camera…</span>
+        </div>}
+        {/* Crosshair corners */}
+        {!scanning&&<>
+          <div style={{position:"absolute",top:12,left:12,width:24,height:24,borderTop:"2px solid #5A9E8F99",borderLeft:"2px solid #5A9E8F99"}}/>
+          <div style={{position:"absolute",top:12,right:12,width:24,height:24,borderTop:"2px solid #5A9E8F99",borderRight:"2px solid #5A9E8F99"}}/>
+          <div style={{position:"absolute",bottom:12,left:12,width:24,height:24,borderBottom:"2px solid #5A9E8F99",borderLeft:"2px solid #5A9E8F99"}}/>
+          <div style={{position:"absolute",bottom:12,right:12,width:24,height:24,borderBottom:"2px solid #5A9E8F99",borderRight:"2px solid #5A9E8F99"}}/>
+        </>}
+        {scanning && <div style={{position:"absolute",left:8,right:8,height:2,background:C.calm,boxShadow:`0 0 12px ${C.calm}88`,animation:"scanLine 2s ease-in-out infinite"}}/>}
+        <div style={{position:"absolute",top:10,left:12,display:"flex",alignItems:"center",gap:5}}>
+          <div style={{width:7,height:7,borderRadius:"50%",background:scanning?"#E85454":C.calm,animation:"pulse 2s infinite"}}/>
+          <span style={{fontSize:10,color:"#ccc",fontWeight:700,fontFamily:F}}>{scanning?"SCANNING":"READY"}</span>
+        </div>
+      </div>
+    )}
+    {scanning && (
+      <div style={{marginTop:10}}>
+        <div style={{height:6,borderRadius:3,background:"#333",overflow:"hidden"}}>
+          <div style={{width:"100%",height:"100%",borderRadius:3,background:`linear-gradient(90deg,${C.calm},#5BA898)`,animation:"shimmer 1.5s ease-in-out infinite"}}/>
+        </div>
+        <div style={{marginTop:6,fontSize:12,color:"#aaa",fontWeight:700,fontFamily:F,textAlign:"center"}}>
+          GPT-4o reading spine labels…
+        </div>
+      </div>
+    )}
   </div>
 }
 
-// ── Simulated Camera View ──────────────────────────────────────────────────────
-function CameraView({scanning,progress,reducedMotion}) {
-  return <div style={{background:"#181818",borderRadius:14,padding:14,position:"relative",overflow:"hidden"}}>
-    <div style={{height:180,borderRadius:10,background:"linear-gradient(135deg,#222,#1a1a1a)",display:"flex",alignItems:"center",justifyContent:"center",gap:5,position:"relative",overflow:"hidden"}}>
-      {BOOKS.map(b=><div key={b.id} style={{width:24,height:68,borderRadius:3,background:b.color,opacity:.55,boxShadow:"inset 0 0 8px #00000033"}}/>)}
-      {scanning&&!reducedMotion&&<div style={{position:"absolute",left:8,right:8,height:2,background:C.calm,boxShadow:`0 0 12px ${C.calm}88`,animation:"scanLine 2.2s ease-in-out infinite"}}/>}
-      <div style={{position:"absolute",top:10,left:12,display:"flex",alignItems:"center",gap:5}}>
-        <div style={{width:7,height:7,borderRadius:"50%",background:scanning?"#E85454":C.calm,animation:!reducedMotion?"pulse 2s infinite":"none"}}/>
-        <span style={{fontSize:10,color:"#888",fontWeight:700,fontFamily:F}}>{scanning?"REC":"READY"}</span>
-      </div>
-      {!scanning&&<>
-        <div style={{position:"absolute",top:20,left:20,width:24,height:24,borderTop:"2px solid #5A9E8F66",borderLeft:"2px solid #5A9E8F66"}}/>
-        <div style={{position:"absolute",top:20,right:20,width:24,height:24,borderTop:"2px solid #5A9E8F66",borderRight:"2px solid #5A9E8F66"}}/>
-        <div style={{position:"absolute",bottom:20,left:20,width:24,height:24,borderBottom:"2px solid #5A9E8F66",borderLeft:"2px solid #5A9E8F66"}}/>
-        <div style={{position:"absolute",bottom:20,right:20,width:24,height:24,borderBottom:"2px solid #5A9E8F66",borderRight:"2px solid #5A9E8F66"}}/>
-      </>}
+// ── Dynamic shelf strip (from scan results) ────────────────────────────────────
+function ResultShelf({books, highlightCall}) {
+  return <div style={{background:"linear-gradient(180deg,#EDE5DA,#DDD4C8)",borderRadius:12,padding:"12px 10px 10px",border:"2px solid #CFC5B8",overflowX:"auto"}}>
+    <div style={{height:3,background:"#BFB3A5",borderRadius:2,marginBottom:8}}/>
+    <div style={{display:"flex",gap:6,alignItems:"flex-end",minHeight:100,padding:"16px 4px 0"}}>
+      {books.map((b,i) => {
+        const isMisplaced = b.status === 'misplaced';
+        const isCurrent   = b.call === highlightCall;
+        const color = BOOK_COLORS[i % BOOK_COLORS.length];
+        return <div key={i} style={{display:"flex",flexDirection:"column",alignItems:"center",flexShrink:0}}>
+          <div style={{width:36,height:90,borderRadius:"4px 4px 2px 2px",background:`linear-gradient(180deg,${color},${color}bb)`,border:isCurrent?`3px solid ${C.warn}`:isMisplaced?`2px solid ${C.warn}55`:`2px solid ${C.ok}44`,boxShadow:isCurrent?`0 0 12px ${C.warn}66`:"0 2px 4px #00000012",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"space-between",padding:"4px 2px",transition:"all .3s"}}>
+            <div style={{width:14,height:14,display:"flex",alignItems:"center",justifyContent:"center"}}>
+              {isCurrent?<Wrn/>:isMisplaced?<Wrn/>:<Chk/>}
+            </div>
+            <span style={{writingMode:"vertical-rl",fontSize:7,color:"#fff",fontWeight:800,fontFamily:F,textShadow:"0 1px 2px #00000033"}}>{b.call}</span>
+          </div>
+          <span style={{fontSize:7,color:C.sub,marginTop:2,fontWeight:700,fontFamily:F,maxWidth:36,textAlign:"center",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{b.call}</span>
+        </div>;
+      })}
     </div>
-    {scanning&&<div style={{marginTop:10}}>
-      <div style={{height:6,borderRadius:3,background:"#333",overflow:"hidden"}}><div style={{width:`${progress}%`,height:"100%",borderRadius:3,background:C.calm,transition:"width .15s linear"}}/></div>
-      <div style={{display:"flex",justifyContent:"space-between",marginTop:6}}>
-        <span style={{fontSize:11,color:"#777",fontWeight:700,fontFamily:F}}>{Math.min(Math.floor(progress/17)+1,6)} of 6 found</span>
-        <span style={{fontSize:11,color:C.calm,fontWeight:800,fontFamily:F}}>{progress}%</span>
-      </div>
-    </div>}
+    <div style={{height:3,background:"#BFB3A5",borderRadius:2,marginTop:8}}/>
   </div>
 }
 
@@ -203,11 +314,8 @@ function AdminPanel({profile, celeb, setCeleb, rm, setRm, onSave, onClose}) {
   const [apiKey,  setApiKey]  = useState(profile.apiKey);
 
   function toggleFeat(f) {
-    if (f === 'both') {
-      setFeatures(p => p.includes('both') ? p.filter(x=>x!=='both') : ['text','voice','image','both']);
-    } else {
-      setFeatures(p => p.includes(f) ? p.filter(x=>x!==f) : [...p, f]);
-    }
+    if (f==='both') { setFeatures(p=>p.includes('both')?p.filter(x=>x!=='both'):['text','voice','image','both']); }
+    else            { setFeatures(p=>p.includes(f)?p.filter(x=>x!==f):[...p,f]); }
   }
 
   const inp = {padding:'12px 14px',borderRadius:10,border:`1.5px solid ${C.bdr}`,fontSize:15,fontFamily:F,color:C.text,background:C.card,outline:'none',width:'100%',boxSizing:'border-box'};
@@ -215,13 +323,11 @@ function AdminPanel({profile, celeb, setCeleb, rm, setRm, onSave, onClose}) {
   return <div style={{position:'fixed',inset:0,background:C.bg,overflowY:'auto',zIndex:200,fontFamily:F}}>
     <div style={{width:'100%',maxWidth:420,margin:'0 auto',padding:'16px 16px 40px'}}>
 
-      {/* Header */}
       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:24}}>
         <div style={{fontSize:20,fontWeight:900,color:C.text}}>⚙ Admin Panel</div>
         <button onClick={onClose} style={{padding:'8px 14px',borderRadius:10,border:`1.5px solid ${C.bdr}`,background:C.card,cursor:'pointer',fontSize:13,fontWeight:700,fontFamily:F,color:C.text}}>✕ Close</button>
       </div>
 
-      {/* Worker Name */}
       <Section title="USER PROFILE">
         <label style={{display:'flex',flexDirection:'column',gap:6,fontSize:13,fontWeight:700,color:C.sub,fontFamily:F}}>
           Worker Name
@@ -229,14 +335,13 @@ function AdminPanel({profile, celeb, setCeleb, rm, setRm, onSave, onClose}) {
         </label>
       </Section>
 
-      {/* Support Level */}
       <Section title="SUPPORT LEVEL" hint="Choose how much step-by-step guidance this worker needs.">
         <div style={{display:'flex',flexDirection:'column',gap:8}}>
           {[
-            {l:1, desc:'Needs occasional reminders and guidance for new tasks',       ui:'Standard text · All features'},
-            {l:2, desc:'Needs clear step-by-step instructions for most tasks',        ui:'Larger text · Simplified layout'},
-            {l:3, desc:'Needs maximum simplification and one step at a time',         ui:'Large text · One task · Break reminders'},
-          ].map(({l,desc,ui}) => (
+            {l:1, desc:'Needs occasional reminders and guidance for new tasks',     ui:'Standard text · All features'},
+            {l:2, desc:'Needs clear step-by-step instructions for most tasks',      ui:'Larger text · Simplified layout'},
+            {l:3, desc:'Needs maximum simplification and one step at a time',       ui:'Large text · One task · Break reminders'},
+          ].map(({l,desc,ui})=>(
             <button key={l} onClick={()=>setLevel(l)} style={{display:'flex',alignItems:'center',gap:14,padding:'14px 16px',borderRadius:14,border:`2px solid ${level===l?LVL_COLORS[l]:C.bdr}`,background:level===l?LVL_COLORS[l]+'18':C.card,cursor:'pointer',textAlign:'left',fontFamily:F,width:'100%'}}>
               <div style={{width:44,height:44,borderRadius:12,background:LVL_COLORS[l],display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,fontWeight:900,color:'#fff',flexShrink:0}}>L{l}</div>
               <div style={{flex:1}}>
@@ -244,20 +349,19 @@ function AdminPanel({profile, celeb, setCeleb, rm, setRm, onSave, onClose}) {
                 <div style={{fontSize:11,color:C.sub,fontWeight:600,marginTop:2}}>{desc}</div>
                 <div style={{fontSize:10,color:C.sub,fontWeight:600,marginTop:1,opacity:.7}}>{ui}</div>
               </div>
-              {level===l && <span style={{fontSize:18,color:LVL_COLORS[l]}}>✓</span>}
+              {level===l&&<span style={{fontSize:18,color:LVL_COLORS[l]}}>✓</span>}
             </button>
           ))}
         </div>
       </Section>
 
-      {/* Workplace */}
       <Section title="WORKPLACE" hint="Choose the worker's job environment.">
         <div style={{display:'flex',gap:8}}>
           {[
             {key:'library',  icon:'📚', name:'Library',     desc:'Shelves & patrons'},
             {key:'coffee',   icon:'☕', name:'Coffee Shop', desc:'Orders & customers'},
             {key:'swimming', icon:'🏊', name:'Swimming',    desc:'Lessons & safety'},
-          ].map(uc => (
+          ].map(uc=>(
             <button key={uc.key} onClick={()=>setUseCase(uc.key)} style={{flex:1,padding:'12px 8px',borderRadius:14,border:`2px solid ${useCase===uc.key?C.calm:C.bdr}`,background:useCase===uc.key?C.calmL:C.card,cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:5,fontFamily:F}}>
               <span style={{fontSize:24}}>{uc.icon}</span>
               <span style={{fontSize:12,fontWeight:800,color:C.text}}>{uc.name}</span>
@@ -267,7 +371,6 @@ function AdminPanel({profile, celeb, setCeleb, rm, setRm, onSave, onClose}) {
         </div>
       </Section>
 
-      {/* AI Features */}
       <Section title="AI FEATURES" hint="Choose how the AI communicates with the worker.">
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
           {[
@@ -275,7 +378,7 @@ function AdminPanel({profile, celeb, setCeleb, rm, setRm, onSave, onClose}) {
             {key:'voice', icon:'🎤', name:'Voice',        desc:'Spoken guidance'},
             {key:'image', icon:'📷', name:'Image',        desc:'Camera scanning'},
             {key:'both',  icon:'✨', name:'All Features', desc:'Full experience'},
-          ].map(f => (
+          ].map(f=>(
             <button key={f.key} onClick={()=>toggleFeat(f.key)} style={{padding:'12px 8px',borderRadius:12,border:`2px solid ${features.includes(f.key)?C.calm:C.bdr}`,background:features.includes(f.key)?C.calmL:C.card,cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:4,fontFamily:F}}>
               <span style={{fontSize:22}}>{f.icon}</span>
               <span style={{fontSize:12,fontWeight:800,color:C.text}}>{f.name}</span>
@@ -285,15 +388,16 @@ function AdminPanel({profile, celeb, setCeleb, rm, setRm, onSave, onClose}) {
         </div>
       </Section>
 
-      {/* AI Settings */}
       <Section title="AI SETTINGS">
         <label style={{display:'flex',flexDirection:'column',gap:6,fontSize:13,fontWeight:700,color:C.sub,fontFamily:F}}>
-          OpenAI API Key
+          OpenAI API Key (used for GPT-4o)
           <input type="password" value={apiKey} onChange={e=>setApiKey(e.target.value)} placeholder="sk-…" style={inp}/>
         </label>
+        <div style={{marginTop:8,padding:'8px 12px',borderRadius:8,background:C.calmL,border:`1px solid ${C.calm}33`}}>
+          <span style={{fontSize:11,color:C.calm,fontWeight:700,fontFamily:F}}>📷 Vision scan + 💬 coaching both use GPT-4o</span>
+        </div>
       </Section>
 
-      {/* Celebration Style */}
       <Section title="CELEBRATION STYLE">
         <div style={{display:'flex',gap:7}}>
           {[{id:'calm',ic:'✓',nm:'Calm',ds:'Checkmark only'},{id:'medium',ic:'⭐',nm:'Stars',ds:'Stars + streak'},{id:'full',ic:'🏆',nm:'Party',ds:'Full celebration'}].map(o=>(
@@ -306,7 +410,6 @@ function AdminPanel({profile, celeb, setCeleb, rm, setRm, onSave, onClose}) {
         </div>
       </Section>
 
-      {/* Motion */}
       <Section title="MOTION">
         <button onClick={()=>setRm(r=>!r)} style={{width:'100%',padding:'12px 14px',borderRadius:12,border:`2px solid ${C.bdr}`,background:C.card,cursor:'pointer',display:'flex',alignItems:'center',gap:10,fontFamily:F}}>
           <span style={{fontSize:20}}>{rm?'🔇':'✨'}</span>
@@ -338,8 +441,7 @@ function CoachTaskScreen({title, tasks, profile, onBack, say}) {
     setActiveKey(key); setLoading(true); setResponse('');
     try {
       const ans = await coachCall(profile.apiKey, profile.level, tasks[key].prompt);
-      setResponse(ans);
-      say(ans);
+      setResponse(ans); say(ans);
     } catch(e) { setResponse(`Error: ${e.message}`); }
     finally { setLoading(false); }
   }
@@ -350,7 +452,7 @@ function CoachTaskScreen({title, tasks, profile, onBack, say}) {
       <div style={{fontSize:22,fontWeight:900,color:C.text}}>{title}</div>
     </div>
     <div style={{display:'flex',flexDirection:'column',gap:10}}>
-      {Object.entries(tasks).map(([key,t]) => (
+      {Object.entries(tasks).map(([key,t])=>(
         <button key={key} onClick={()=>runTask(key)} style={{width:'100%',display:'flex',alignItems:'center',gap:14,padding:18,borderRadius:14,border:`2px solid ${activeKey===key?C.calm:C.bdr}`,background:activeKey===key?C.calmL:C.card,cursor:'pointer',fontFamily:F,textAlign:'left'}}>
           <span style={{fontSize:26,flexShrink:0}}>{t.icon}</span>
           <span style={{fontSize:16,fontWeight:700,color:C.text,flex:1}}>{t.label}</span>
@@ -358,19 +460,17 @@ function CoachTaskScreen({title, tasks, profile, onBack, say}) {
         </button>
       ))}
     </div>
-    {(loading||response) && (
-      <Card style={{marginTop:16}}>
-        <div style={{fontSize:11,fontWeight:800,color:C.sub,marginBottom:8,letterSpacing:1}}>AI COACH SAYS:</div>
-        <div style={{fontSize:15,color:C.text,lineHeight:1.65,fontWeight:600,fontFamily:F,whiteSpace:'pre-wrap'}}>
-          {loading ? 'Getting your coaching…' : response}
-        </div>
-      </Card>
-    )}
+    {(loading||response)&&<Card style={{marginTop:16}}>
+      <div style={{fontSize:11,fontWeight:800,color:C.sub,marginBottom:8,letterSpacing:1}}>GPT-4o COACH SAYS:</div>
+      <div style={{fontSize:15,color:C.text,lineHeight:1.65,fontWeight:600,fontFamily:F,whiteSpace:'pre-wrap'}}>
+        {loading?'GPT-4o is thinking…':response}
+      </div>
+    </Card>}
   </div>
 }
 
 // ── Celebration ────────────────────────────────────────────────────────────────
-function Celebrate({level,rm,onNext,onBreak}) {
+function Celebrate({level,rm,onNext,onBreak,fixed,total}) {
   const [show,setShow] = useState(false);
   useEffect(()=>{setTimeout(()=>setShow(true),200)},[]);
   return <div style={{animation:rm?"none":"fadeIn .5s ease"}}>
@@ -378,7 +478,7 @@ function Celebrate({level,rm,onNext,onBreak}) {
       <div style={{fontSize:48,marginBottom:10,transition:"transform .5s",transform:show?"scale(1)":"scale(.8)"}}>✓</div>
       <div style={{fontSize:22,fontWeight:900,color:C.text,fontFamily:F}}>Shelf is correct</div>
       <div style={{display:"flex",justifyContent:"center",gap:28,marginTop:20}}>
-        {[{n:"6",l:"Checked"},{n:"2",l:"Fixed"}].map((s,i)=><div key={i} style={{textAlign:"center"}}><div style={{fontSize:26,fontWeight:900,color:C.calm}}>{s.n}</div><div style={{fontSize:11,color:C.sub,fontWeight:700,fontFamily:F}}>{s.l}</div></div>)}
+        {[{n:String(total),l:"Checked"},{n:String(fixed),l:"Fixed"}].map((s,i)=><div key={i} style={{textAlign:"center"}}><div style={{fontSize:26,fontWeight:900,color:C.calm}}>{s.n}</div><div style={{fontSize:11,color:C.sub,fontWeight:700,fontFamily:F}}>{s.l}</div></div>)}
       </div>
     </Card>}
     {level==="medium"&&<Card style={{textAlign:"center",padding:"28px 18px",border:`2px solid ${C.calm}33`,background:`linear-gradient(160deg,${C.card},${C.calmL})`}}>
@@ -386,7 +486,7 @@ function Celebrate({level,rm,onNext,onBreak}) {
         {[0,1,2].map(i=><div key={i} style={{fontSize:30,opacity:show?1:0,transform:show?"translateY(0) scale(1)":"translateY(10px) scale(.5)",transition:rm?"none":`all .4s ease ${i*.15+.2}s`}}>⭐</div>)}
       </div>
       <div style={{fontSize:21,fontWeight:900,color:C.text,fontFamily:F}}>Shelf is correct</div>
-      <div style={{fontSize:14,color:C.sub,fontWeight:600,marginTop:5,fontFamily:F}}>6 checked · 2 fixed</div>
+      <div style={{fontSize:14,color:C.sub,fontWeight:600,marginTop:5,fontFamily:F}}>{total} checked · {fixed} fixed</div>
       <div style={{marginTop:18,padding:"10px 14px",background:C.goldL,borderRadius:10,border:`1.5px solid ${C.gold}33`}}>
         <span style={{fontSize:13,fontWeight:700,color:C.gold,fontFamily:F}}>🏅 3 shelves completed today</span>
       </div>
@@ -397,11 +497,10 @@ function Celebrate({level,rm,onNext,onBreak}) {
         {[0,1,2].map(i=><div key={i} style={{fontSize:34,opacity:show?1:0,transform:show?"translateY(0) scale(1) rotate(0)":"translateY(20px) scale(0) rotate(-30deg)",transition:rm?"none":`all .5s cubic-bezier(.34,1.56,.64,1) ${i*.2+.2}s`}}>⭐</div>)}
       </div>
       <div style={{fontSize:22,fontWeight:900,color:C.text,fontFamily:F,opacity:show?1:0,transition:rm?"none":"opacity .4s ease .8s"}}>Shelf is correct!</div>
-      <div style={{fontSize:14,color:C.sub,fontWeight:600,marginTop:5,fontFamily:F}}>6 checked · 2 fixed</div>
+      <div style={{fontSize:14,color:C.sub,fontWeight:600,marginTop:5,fontFamily:F}}>{total} checked · {fixed} fixed</div>
       <div style={{marginTop:18,padding:"12px 14px",background:"#fff",borderRadius:12,boxShadow:"0 2px 8px #00000008"}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginBottom:8}}>
-          <span style={{fontSize:18}}>🏆</span>
-          <span style={{fontSize:15,fontWeight:800,color:C.gold,fontFamily:F}}>New streak: 3 days!</span>
+          <span style={{fontSize:18}}>🏆</span><span style={{fontSize:15,fontWeight:800,color:C.gold,fontFamily:F}}>New streak: 3 days!</span>
         </div>
         <div style={{display:"flex",justifyContent:"center",gap:4}}>
           {["M","T","W","T","F"].map((d,i)=><div key={i} style={{width:30,height:30,borderRadius:7,background:i<=2?C.calmL:C.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,color:i<=2?C.calm:C.sub,border:i===2?`2px solid ${C.calm}`:"2px solid transparent",fontFamily:F}}>{i<=2?"✓":d}</div>)}
@@ -443,22 +542,32 @@ function BreakScreen({onResume,rm}) {
 // MAIN APP
 // ══════════════════════════════════════════════════════════════════════════════
 export default function BuddyWork() {
-  const [profile, setProfile]         = useState(loadProfile);
-  const [si, setSi]                   = useState(0);
-  const [activeUseCase, setActiveUseCase] = useState(null); // null | 'coffee' | 'swimming'
-  const [prog, setProg]               = useState(0);
-  const [celeb, setCeleb]             = useState("medium");
-  const [rm, setRm]                   = useState(false);
-  const [showAdmin, setShowAdmin]     = useState(false);
-  const [onBreak, setOnBreak]         = useState(false);
-  const step = STEPS[si];
-  const v = useVoice();
+  const [profile, setProfile]             = useState(loadProfile);
+  const [si, setSi]                       = useState(0);
+  const [activeUseCase, setActiveUseCase] = useState(null);
+  const [celeb, setCeleb]                 = useState("medium");
+  const [rm, setRm]                       = useState(false);
+  const [showAdmin, setShowAdmin]         = useState(false);
+  const [onBreak, setOnBreak]             = useState(false);
+
+  // Scan state
+  const [scanResult, setScanResult]   = useState(null);   // { books, summary }
+  const [scanError,  setScanError]    = useState(null);
+  const [scanning,   setScanning]     = useState(false);
+  const [fixIndex,   setFixIndex]     = useState(0);
+
+  const camera = useCamera();
+  const step   = STEPS[si];
+  const v      = useVoice();
+
+  const misplacedBooks = (scanResult?.books || []).filter(b => b.status === 'misplaced');
+  const correctCount   = (scanResult?.books || []).filter(b => b.status === 'correct').length;
+  const totalCount     = (scanResult?.books || []).length;
 
   function handleSaveProfile(updated) {
     setProfile(updated);
     persistProfile(updated);
-    const hasVoice = updated.features.includes('voice') || updated.features.includes('both');
-    v.setOn(hasVoice);
+    v.setOn(updated.features.includes('voice') || updated.features.includes('both'));
     setShowAdmin(false);
   }
 
@@ -467,19 +576,43 @@ export default function BuddyWork() {
   }, [v, profile.features]);
 
   const next  = useCallback(() => setSi(i => Math.min(i+1, STEPS.length-1)), []);
-  const reset = useCallback(() => { setSi(0); setProg(0); v.stop(); setOnBreak(false); setActiveUseCase(null); }, [v]);
+  const reset = useCallback(() => {
+    setSi(0); v.stop(); setOnBreak(false); setActiveUseCase(null);
+    setScanResult(null); setScanError(null); setScanning(false); setFixIndex(0);
+    camera.stop();
+  }, [v, camera]);
 
+  // Speak on each step
   useEffect(() => { const t = setTimeout(() => v.say(VOICE[step]), 300); return () => clearTimeout(t); }, [step]);
 
+  // Start camera when entering the camera step
   useEffect(() => {
-    if (step === "scanning") {
-      setProg(0);
-      const iv = setInterval(() => { setProg(p => { if (p >= 100) { clearInterval(iv); setTimeout(next, 500); return 100; } return p+2; }); }, 70);
-      return () => clearInterval(iv);
-    }
-  }, [step, next]);
+    if (step === 'camera') camera.start();
+  }, [step]);
 
-  const RS  = ["correct","correct","correct","misplaced","misplaced","correct"];
+  // Run GPT-4o vision scan when entering scanning step
+  useEffect(() => {
+    if (step !== 'scanning') return;
+    let cancelled = false;
+    async function doScan() {
+      setScanning(true); setScanError(null);
+      const frame = camera.captureFrame();
+      if (!frame || !profile.apiKey) {
+        await new Promise(r => setTimeout(r, 1500)); // show scanning briefly
+        if (!cancelled) { setScanResult(getDemoScanResult()); setScanning(false); next(); }
+        return;
+      }
+      try {
+        const result = await scanWithVision(profile.apiKey, frame);
+        if (!cancelled) { setScanResult(result); setScanning(false); camera.stop(); next(); }
+      } catch(e) {
+        if (!cancelled) { setScanError(e.message); setScanResult(getDemoScanResult()); setScanning(false); camera.stop(); next(); }
+      }
+    }
+    doScan();
+    return () => { cancelled = true; };
+  }, [step]);
+
   const anim = rm ? "none" : "fadeIn .4s ease";
 
   if (onBreak) return (
@@ -503,15 +636,14 @@ export default function BuddyWork() {
         {si > 0 && si < STEPS.length-1 && !activeUseCase && <Pips cur={si-1} total={STEPS.length-2}/>}
 
         {/* ── Use Case Screens ── */}
-        {activeUseCase === 'coffee'   && <CoachTaskScreen title="☕ Coffee Shop" tasks={COFFEE_TASKS} profile={profile} onBack={()=>setActiveUseCase(null)} say={saySafe}/>}
-        {activeUseCase === 'swimming' && <CoachTaskScreen title="🏊 Swimming"   tasks={SWIM_TASKS}   profile={profile} onBack={()=>setActiveUseCase(null)} say={saySafe}/>}
+        {activeUseCase==='coffee'   && <CoachTaskScreen title="☕ Coffee Shop" tasks={COFFEE_TASKS} profile={profile} onBack={()=>setActiveUseCase(null)} say={saySafe}/>}
+        {activeUseCase==='swimming' && <CoachTaskScreen title="🏊 Swimming"   tasks={SWIM_TASKS}   profile={profile} onBack={()=>setActiveUseCase(null)} say={saySafe}/>}
 
         {/* ── Library Flow ── */}
         {!activeUseCase && <>
 
           {/* WELCOME / HUB */}
           {step==="welcome" && <div style={{animation:anim}}>
-            {/* Profile badge */}
             <div style={{display:'flex',alignItems:'center',gap:12,padding:'12px 14px',background:C.card,borderRadius:14,border:`1.5px solid ${C.bdr}`,marginBottom:16}}>
               <div style={{width:44,height:44,borderRadius:12,background:LVL_COLORS[profile.level],display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,fontWeight:900,color:'#fff',flexShrink:0}}>L{profile.level}</div>
               <div style={{flex:1}}>
@@ -519,19 +651,16 @@ export default function BuddyWork() {
                 <div style={{fontSize:11,color:C.sub,fontWeight:600}}>{LVL_LABELS[profile.level]}</div>
               </div>
               <div style={{display:'flex',gap:4}}>
-                {profile.features.map(f => FEAT_ICONS[f] ? <span key={f} style={{fontSize:14}}>{FEAT_ICONS[f]}</span> : null)}
+                {profile.features.map(f=>FEAT_ICONS[f]?<span key={f} style={{fontSize:14}}>{FEAT_ICONS[f]}</span>:null)}
               </div>
             </div>
-
             <div style={{fontSize:22,fontWeight:900,color:C.text,marginBottom:14,fontFamily:F}}>What are you doing today?</div>
-
-            {/* Hub card — only the workplace selected in Admin */}
             {[
               {key:'library',  icon:'📚', name:'Library',     desc:'Organise shelves · Help patrons'},
               {key:'coffee',   icon:'☕', name:'Coffee Shop', desc:'Take orders · Serve customers'},
               {key:'swimming', icon:'🏊', name:'Swimming',    desc:'Teach lessons · Manage pool'},
-            ].filter(uc => uc.key === profile.useCase).map(uc => (
-              <button key={uc.key} onClick={() => { uc.key==='library' ? next() : setActiveUseCase(uc.key); }}
+            ].filter(uc=>uc.key===profile.useCase).map(uc=>(
+              <button key={uc.key} onClick={()=>{uc.key==='library'?next():setActiveUseCase(uc.key);}}
                 style={{width:'100%',display:'flex',alignItems:'center',gap:14,padding:18,borderRadius:14,border:`2px solid ${C.bdr}`,background:C.card,cursor:'pointer',fontFamily:F,marginBottom:10,textAlign:'left'}}>
                 <div style={{width:50,height:50,borderRadius:12,background:C.calmL,display:'flex',alignItems:'center',justifyContent:'center',fontSize:26}}>{uc.icon}</div>
                 <div style={{flex:1}}>
@@ -547,7 +676,7 @@ export default function BuddyWork() {
           {step==="overview" && <div style={{animation:anim}}>
             <Hero icon="📚" text="Shelf Scan" sub="Aisle 5 · Fiction A–F"/>
             <Card style={{marginTop:12}}>
-              {[{i:"🚶",t:"Go to aisle"},{i:"📷",t:"Scan shelf"},{i:"🔄",t:"Fix order"}].map((s,j)=><div key={j} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 0",borderBottom:j<2?`1px solid ${C.bdr}`:"none"}}>
+              {[{i:"🚶",t:"Go to aisle"},{i:"📷",t:"Scan shelf with GPT-4o"},{i:"🔄",t:"Fix order"}].map((s,j)=><div key={j} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 0",borderBottom:j<2?`1px solid ${C.bdr}`:"none"}}>
                 <div style={{width:38,height:38,borderRadius:10,background:C.calmL,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>{s.i}</div>
                 <span style={{fontSize:16,fontWeight:700,color:C.text}}>{s.t}</span>
               </div>)}
@@ -577,17 +706,31 @@ export default function BuddyWork() {
             <div style={{marginTop:16}}><Btn onClick={next} icon="📸">Open camera</Btn></div>
           </div>}
 
-          {/* CAMERA */}
+          {/* CAMERA — live feed */}
           {step==="camera" && <div style={{animation:anim}}>
-            <Hero icon="📷" text="Hold steady" sub="Point at shelf 2"/>
-            <div style={{marginTop:12}}><CameraView scanning={false} progress={0} reducedMotion={rm}/></div>
+            <Hero icon="📷" text="Hold steady" sub="Point camera at the shelf"/>
+            <div style={{marginTop:12}}>
+              <LiveCamera videoRef={camera.videoRef} ready={camera.ready} camErr={camera.camErr} scanning={false}/>
+            </div>
+            {camera.camErr && (
+              <div style={{marginTop:8,padding:'8px 12px',background:C.warnL,borderRadius:8,border:`1px solid ${C.warnB}`}}>
+                <span style={{fontSize:11,color:C.warn,fontWeight:700,fontFamily:F}}>No camera — will use demo data instead</span>
+              </div>
+            )}
             <div style={{marginTop:16}}><Btn onClick={next} icon="🔍">Scan now</Btn></div>
           </div>}
 
-          {/* SCANNING */}
+          {/* SCANNING — GPT-4o vision */}
           {step==="scanning" && <div style={{animation:anim}}>
-            <Hero icon="🔍" text="Scanning..." sub={`${Math.min(Math.floor(prog/17)+1,6)} of 6 found`}/>
-            <div style={{marginTop:12}}><CameraView scanning={true} progress={prog} reducedMotion={rm}/></div>
+            <Hero icon="🔍" text="Scanning shelf…" sub="GPT-4o is reading spine labels"/>
+            <div style={{marginTop:12}}>
+              <LiveCamera videoRef={camera.videoRef} ready={camera.ready} camErr={camera.camErr} scanning={true}/>
+            </div>
+            {scanError && (
+              <div style={{marginTop:8,padding:'8px 12px',background:C.warnL,borderRadius:8,border:`1px solid ${C.warnB}`}}>
+                <span style={{fontSize:11,color:C.warn,fontWeight:700,fontFamily:F}}>Scan error — using demo data</span>
+              </div>
+            )}
           </div>}
 
           {/* RESULTS */}
@@ -595,49 +738,73 @@ export default function BuddyWork() {
             <Hero icon="📋" text="Scan complete"/>
             <div style={{display:"flex",gap:8,marginTop:8}}>
               <div style={{flex:1,padding:"11px 8px",borderRadius:10,background:C.okL,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
-                <Chk/><span style={{fontSize:16,fontWeight:900,color:C.ok,fontFamily:F}}>4 correct</span>
+                <Chk/><span style={{fontSize:16,fontWeight:900,color:C.ok,fontFamily:F}}>{correctCount} correct</span>
               </div>
-              <div style={{flex:1,padding:"11px 8px",borderRadius:10,background:C.warnL,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
-                <Wrn/><span style={{fontSize:16,fontWeight:900,color:C.warn,fontFamily:F}}>2 wrong</span>
+              <div style={{flex:1,padding:"11px 8px",borderRadius:10,background:misplacedBooks.length?C.warnL:C.okL,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+                {misplacedBooks.length?<Wrn/>:<Chk/>}
+                <span style={{fontSize:16,fontWeight:900,color:misplacedBooks.length?C.warn:C.ok,fontFamily:F}}>{misplacedBooks.length} wrong</span>
               </div>
             </div>
-            <div style={{marginTop:10}}><Shelf books={BOOKS} statuses={RS}/></div>
-            <div style={{marginTop:14}}><Btn onClick={next} icon="🔄">Fix them</Btn></div>
+            {scanResult?.books?.length > 0 && (
+              <div style={{marginTop:12}}>
+                <ResultShelf books={scanResult.books} highlightCall={null}/>
+              </div>
+            )}
+            <div style={{marginTop:14}}>
+              {misplacedBooks.length > 0
+                ? <Btn onClick={()=>{setFixIndex(0);next();}} icon="🔄">Fix {misplacedBooks.length} book{misplacedBooks.length>1?'s':''}</Btn>
+                : <Btn onClick={next} icon="✅">Shelf looks great!</Btn>
+              }
+            </div>
           </div>}
 
-          {/* FIX 1 */}
-          {step==="fix1" && <div style={{animation:anim}}>
-            <Hero icon="👆" text="Take out this book"/>
-            <div style={{marginTop:10}}><Shelf books={BOOKS} statuses={["correct","correct","correct","misplaced","none","correct"]} arrows={[null,null,null,"Take out",null,null]}/></div>
-            <div style={{marginTop:10,background:C.warnL,borderRadius:10,padding:"10px 14px",border:`1.5px solid ${C.warnB}`,textAlign:"center"}}><span style={{fontSize:15,fontWeight:800,color:C.warn,fontFamily:F}}>FIC HER — hold it</span></div>
-            <div style={{marginTop:12}}><Btn onClick={next} icon="✅">Done</Btn></div>
-          </div>}
+          {/* FIX — dynamic, one book at a time */}
+          {step==="fix" && (() => {
+            const book = misplacedBooks[fixIndex];
+            if (!book) { next(); return null; }
+            const isLast = fixIndex === misplacedBooks.length - 1;
+            return <div style={{animation:anim}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                <Hero icon="👆" text={`Fix ${fixIndex+1} of ${misplacedBooks.length}`}/>
+              </div>
 
-          {/* FIX 2 */}
-          {step==="fix2" && <div style={{animation:anim}}>
-            <Hero icon="👆" text="Take out this book too"/>
-            <div style={{marginTop:10}}><Shelf books={[BOOKS[0],BOOKS[1],BOOKS[2],GAP,BOOKS[4],BOOKS[5]]} statuses={["correct","correct","correct","none","misplaced","correct"]} arrows={[null,null,null,null,"Take out",null]}/></div>
-            <div style={{marginTop:10,background:C.warnL,borderRadius:10,padding:"10px 14px",border:`1.5px solid ${C.warnB}`,textAlign:"center"}}><span style={{fontSize:15,fontWeight:800,color:C.warn,fontFamily:F}}>FIC DIC — hold both books</span></div>
-            <div style={{marginTop:12}}><Btn onClick={next} icon="✅">Done</Btn></div>
-          </div>}
+              {/* Visual shelf with current book highlighted */}
+              {scanResult?.books && <ResultShelf books={scanResult.books} highlightCall={book.call}/>}
 
-          {/* FIX 3 */}
-          {step==="fix3" && <div style={{animation:anim}}>
-            <Hero icon="📥" text="Put FIC DIC in first" sub="D comes before H"/>
-            <div style={{marginTop:10}}><Shelf books={[BOOKS[0],BOOKS[1],BOOKS[2],SLOT,GAP,BOOKS[5]]} statuses={["correct","correct","correct","none","none","correct"]} arrows={[null,null,null,"FIC DIC",null,null]}/></div>
-            <div style={{marginTop:10,background:C.calmL,borderRadius:10,padding:"10px 14px",border:`1.5px solid ${C.calm}33`,textAlign:"center"}}><span style={{fontSize:20,fontWeight:900,color:C.calm,fontFamily:F}}>D → H</span></div>
-            <div style={{marginTop:12}}><Btn onClick={next} icon="✅">Done</Btn></div>
-          </div>}
+              {/* Book card */}
+              <Card style={{marginTop:12,background:C.warnL,border:`2px solid ${C.warnB}`}}>
+                <div style={{fontSize:11,fontWeight:800,color:C.warn,letterSpacing:1,marginBottom:6,fontFamily:F}}>TAKE OUT THIS BOOK</div>
+                <div style={{fontSize:22,fontWeight:900,color:C.text,fontFamily:F}}>{book.call}</div>
+                {book.title&&<div style={{fontSize:13,color:C.sub,fontWeight:600,marginTop:2,fontFamily:F}}>{book.title}</div>}
+              </Card>
 
-          {/* FIX 4 */}
-          {step==="fix4" && <div style={{animation:anim}}>
-            <Hero icon="📥" text="Put FIC HER next"/>
-            <div style={{marginTop:10}}><Shelf books={[FIXED[0],FIXED[1],FIXED[2],FIXED[3],SLOT,FIXED[5]]} statuses={["correct","correct","correct","fixed","none","correct"]} arrows={[null,null,null,null,"FIC HER",null]}/></div>
-            <div style={{marginTop:12}}><Btn onClick={next} icon="✅">Done</Btn></div>
-          </div>}
+              {/* Where it goes */}
+              <Card style={{marginTop:10}}>
+                <div style={{fontSize:11,fontWeight:800,color:C.sub,letterSpacing:1,marginBottom:8,fontFamily:F}}>WHERE IT BELONGS</div>
+                {book.shouldBeAfter&&<div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+                  <span style={{fontSize:12,color:C.sub,fontWeight:700,fontFamily:F,minWidth:60}}>AFTER:</span>
+                  <span style={{fontSize:14,fontWeight:800,color:C.text,fontFamily:F}}>{book.shouldBeAfter}</span>
+                </div>}
+                {book.shouldBeBefore&&<div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:12,color:C.sub,fontWeight:700,fontFamily:F,minWidth:60}}>BEFORE:</span>
+                  <span style={{fontSize:14,fontWeight:800,color:C.text,fontFamily:F}}>{book.shouldBeBefore}</span>
+                </div>}
+                {!book.shouldBeAfter&&!book.shouldBeBefore&&<span style={{fontSize:13,color:C.sub,fontFamily:F}}>Check the alphabetical order in this section.</span>}
+              </Card>
+
+              <div style={{marginTop:14,display:"flex",flexDirection:"column",gap:8}}>
+                <Btn onClick={()=>{ if(isLast) next(); else setFixIndex(i=>i+1); }} icon="✅">
+                  {isLast ? "Done — all fixed!" : "Done — next book"}
+                </Btn>
+                <Btn secondary onClick={()=>{ if(isLast) next(); else setFixIndex(i=>i+1); }} icon="⏭">
+                  Skip this one
+                </Btn>
+              </div>
+            </div>;
+          })()}
 
           {/* COMPLETE */}
-          {step==="complete" && <Celebrate level={celeb} rm={rm} onNext={reset} onBreak={()=>setOnBreak(true)}/>}
+          {step==="complete" && <Celebrate level={celeb} rm={rm} onNext={reset} onBreak={()=>setOnBreak(true)} fixed={misplacedBooks.length} total={totalCount||6}/>}
         </>}
       </div>
     </div>
@@ -651,7 +818,7 @@ function Header({reset, si, onAdminOpen, profile}) {
       <div style={{width:36,height:36,borderRadius:10,background:C.calm,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,color:"#fff",fontWeight:900}}>B</div>
       <div>
         <div style={{fontSize:15,fontWeight:800,color:C.text,lineHeight:1.2,fontFamily:F}}>BuddyWork</div>
-        <div style={{fontSize:10,color:C.sub,fontWeight:600,fontFamily:F}}>AI Job Coach</div>
+        <div style={{fontSize:10,color:C.sub,fontWeight:600,fontFamily:F}}>Powered by GPT-4o</div>
       </div>
     </div>
     <div style={{display:"flex",gap:5,alignItems:"center"}}>
@@ -659,7 +826,7 @@ function Header({reset, si, onAdminOpen, profile}) {
         <span style={{fontSize:11,fontWeight:800,color:LVL_COLORS[profile.level],fontFamily:F}}>L{profile.level} · {profile.name}</span>
       </div>
       <button onClick={onAdminOpen} style={{width:34,height:34,borderRadius:8,border:`1.5px solid ${C.bdr}`,background:C.card,cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center"}} title="Admin Panel">⚙️</button>
-      {si > 0 && <button onClick={reset} style={{width:34,height:34,borderRadius:8,border:`1.5px solid ${C.bdr}`,background:C.card,cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center"}}>🏠</button>}
+      {si>0&&<button onClick={reset} style={{width:34,height:34,borderRadius:8,border:`1.5px solid ${C.bdr}`,background:C.card,cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center"}}>🏠</button>}
     </div>
   </div>
 }
@@ -675,6 +842,7 @@ function Styles() {
     @keyframes bar     { from{height:4px} to{height:14px} }
     @keyframes sparkle { 0%{opacity:0;transform:scale(0) rotate(0)} 40%{opacity:1;transform:scale(1.2) rotate(10deg)} 100%{opacity:0;transform:scale(.8) rotate(-5deg) translateY(-20px)} }
     @keyframes breathe { 0%,100%{transform:scale(1);opacity:.4} 50%{transform:scale(1.4);opacity:.8} }
+    @keyframes shimmer { 0%{opacity:.5} 50%{opacity:1} 100%{opacity:.5} }
     * { box-sizing:border-box; -webkit-tap-highlight-color:transparent }
     body { margin:0 }
   `}</style>
