@@ -437,6 +437,32 @@ function BreakScreen({onResume,rm}){
   </div>
 }
 
+// ── Complete Flash overlay ──
+function CompleteFlash({onDone,rm}){
+  const [pop,setPop]=useState(false);
+  const cbRef=useRef(onDone);
+  cbRef.current=onDone;
+  useEffect(()=>{
+    const t1=setTimeout(()=>setPop(true),80);
+    const t2=setTimeout(()=>cbRef.current(),2400);
+    return()=>{clearTimeout(t1);clearTimeout(t2);};
+  },[]);
+  const particles=["✨","⭐","🎊","💫","🌟","✨","⭐","🎊","💫","🌟","✨","⭐"];
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",background:"linear-gradient(140deg,#4158D0 0%,#C850C0 46%,#FFCC70 100%)",fontFamily:F,animation:rm?"none":"flashIn .25s ease"}} onClick={onDone}>
+      {!rm&&particles.map((e,i)=>(
+        <span key={i} style={{position:"absolute",left:`${5+(i*8)%90}%`,top:`${8+(i*11)%70}%`,fontSize:14+i%3*10,opacity:0,pointerEvents:"none",animation:`sparkle 2s ease-out ${i*.13}s forwards`}}>{e}</span>
+      ))}
+      <div style={{textAlign:"center",transform:pop?"scale(1)":"scale(.3)",opacity:pop?1:0,transition:rm?"none":"all .55s cubic-bezier(.34,1.56,.64,1)",padding:"0 32px"}}>
+        <div style={{fontSize:90,lineHeight:1,marginBottom:20,filter:"drop-shadow(0 6px 28px rgba(0,0,0,.22))"}}>🎉</div>
+        <div style={{fontSize:38,fontWeight:900,color:"#fff",letterSpacing:"-.6px",lineHeight:1.1,textShadow:"0 3px 24px rgba(0,0,0,.2)"}}>You did it!</div>
+        <div style={{fontSize:18,color:"rgba(255,255,255,.82)",fontWeight:700,marginTop:12,letterSpacing:"-.1px"}}>Amazing work, Dylan 🙌</div>
+        <div style={{marginTop:24,fontSize:12,color:"rgba(255,255,255,.5)",fontWeight:600,letterSpacing:.5}}>Tap anywhere to continue</div>
+      </div>
+    </div>
+  );
+}
+
 // ══════════════════════════════════════
 // MAIN APP
 // ══════════════════════════════════════
@@ -449,6 +475,7 @@ export default function BuddyWork(){
   const [onBreak,setOnBreak]=useState(false);
   const [toast,setToast]=useState(null);
   const [earnedBadges,setEarnedBadges]=useState([]);
+  const [showFlash,setShowFlash]=useState(false);
   const step=STEPS[si];
   const v=useVoice();
 
@@ -637,7 +664,7 @@ export default function BuddyWork(){
           <div style={{marginTop:12,background:C.calmL,borderRadius:16,padding:"14px 16px",border:`1px solid ${C.calm}33`,display:"flex",alignItems:"center",gap:12}}>
             <Chk/><span style={{fontSize:13,fontWeight:700,color:C.calm,fontFamily:F}}>Place it right after FIC DIC</span>
           </div>
-          <div style={{marginTop:12}}><Btn onClick={next} icon="✅">Done</Btn></div>
+          <div style={{marginTop:12}}><Btn onClick={()=>setShowFlash(true)} icon="✅">Done</Btn></div>
         </div>}
 
         {/* COMPLETE */}
@@ -647,6 +674,7 @@ export default function BuddyWork(){
     </div>
     <AIAssistant v={v} step={step}/>
     {toast&&<StepToast message={toast} rm={rm}/>}
+    {showFlash&&<CompleteFlash onDone={()=>{setShowFlash(false);next();}} rm={rm}/>}
     </>
   );
 }
@@ -679,6 +707,7 @@ function Styles(){
     @keyframes sparkle{0%{opacity:0;transform:scale(0) rotate(0)}40%{opacity:1;transform:scale(1.2) rotate(10deg)}100%{opacity:0;transform:scale(.8) rotate(-5deg) translateY(-20px)}}
     @keyframes breathe{0%,100%{transform:scale(1);opacity:.4}50%{transform:scale(1.4);opacity:.8}}
     @keyframes toastPop{0%{opacity:0;transform:translate(-50%,-50%) scale(.7)}60%{transform:translate(-50%,-50%) scale(1.05)}100%{opacity:1;transform:translate(-50%,-50%) scale(1)}}
+    @keyframes flashIn{from{opacity:0}to{opacity:1}}
     *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
     body{margin:0}
   `}</style>
