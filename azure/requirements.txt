@@ -1,0 +1,5 @@
+azure-functions
+azure-cognitiveservices-vision-computervision
+msrest
+openai>=1.0.0
+azure-cosmos

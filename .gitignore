@@ -1,0 +1,14 @@
+node_modules/
+build/
+dist/
+.env
+.env.local
+azure/local.settings.json
+*.log
+.DS_Store
+Thumbs.db
+__pycache__/
+*.pyc
+.python_packages/
+.venv/
+unity-build/

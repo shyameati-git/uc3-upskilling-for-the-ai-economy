@@ -1,0 +1,17 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "FUNCTIONS_WORKER_RUNTIME": "python",
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "VISION_KEY": "paste-your-key-here",
+    "VISION_ENDPOINT": "https://buddywork-vision.cognitiveservices.azure.com/",
+    "OPENAI_KEY": "paste-your-key-here",
+    "OPENAI_ENDPOINT": "https://buddywork-openai.openai.azure.com/",
+    "COSMOS_CONNECTION": "paste-your-connection-string-here",
+    "STORAGE_CONNECTION": "paste-your-connection-string-here"
+  },
+  "Host": {
+    "CORS": "*",
+    "CORSCredentials": false
+  }
+}
