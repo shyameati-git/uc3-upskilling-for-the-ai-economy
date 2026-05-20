@@ -17,7 +17,7 @@ const VOICE = {
   fix4:"Put F I C, H E R right after it. Tap Done.",
   complete:"Shelf is correct. 6 books checked. 2 fixed.",
 };
-const C = {calm:"#38836F",calmL:"#EAF4F0",calmD:"#235F4A",warn:"#C07219",warnL:"#FFF8EC",warnB:"#EDD49A",ok:"#38836F",okL:"#EAF4F0",text:"#162820",sub:"#527064",bg:"#EDF2F0",card:"#FFFFFF",bdr:"#D4E3DC",gold:"#9E7800",goldL:"#FFF8E5",surface:"#F4F8F6"};
+const C = {calm:"#38836F",calmL:"#EAF4F0",calmD:"#235F4A",warn:"#C07219",warnL:"#FFF8EC",warnB:"#EDD49A",ok:"#38836F",okL:"#EAF4F0",text:"#162820",sub:"#527064",bg:"#EDF2F0",card:"#FFFFFF",bdr:"#D4E3DC",gold:"#9E7800",goldL:"#FFF8E5",surface:"#F4F8F6",err:"#C0392B",errL:"#FEF0EE"};
 const BOOKS = [
   {id:1,call:"FIC ADA",color:"#4A7FA8"},{id:2,call:"FIC BRA",color:"#C49360"},
   {id:3,call:"FIC CLA",color:"#5E8E65"},{id:4,call:"FIC HER",color:"#B06040"},
@@ -137,14 +137,14 @@ function Greeting({onStart,rm}){
 
 // ── Check / Warning shapes ──
 const Chk=()=><svg width="18" height="18" viewBox="0 0 20 20"><circle cx="10" cy="10" r="9" fill={C.ok}/><path d="M6 10l3 3 5-5" stroke="#fff" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>;
-const Wrn=()=><svg width="18" height="18" viewBox="0 0 20 20"><polygon points="10,2 19,18 1,18" fill={C.warn}/><text x="10" y="15" textAnchor="middle" fill="#fff" fontSize="11" fontWeight="800">!</text></svg>;
+const Wrn=()=><svg width="18" height="18" viewBox="0 0 20 20"><polygon points="10,2 19,18 1,18" fill={C.err}/><text x="10" y="15" textAnchor="middle" fill="#fff" fontSize="11" fontWeight="800">!</text></svg>;
 
 // ── Book Spine ──
 function Spine({book,status,arrow}){
   const m=status==="misplaced",f=status==="fixed",co=status==="correct";
   return <div style={{display:"flex",flexDirection:"column",alignItems:"center",position:"relative"}}>
     {arrow&&<div style={{position:"absolute",top:-30,display:"flex",flexDirection:"column",alignItems:"center",animation:"bob 2s ease-in-out infinite"}}><span style={{fontSize:10,fontWeight:800,color:C.warn,fontFamily:F}}>{arrow}</span><span style={{fontSize:14,color:C.warn}}>↓</span></div>}
-    <div style={{width:44,height:120,borderRadius:"4px 4px 2px 2px",background:`linear-gradient(180deg,${book.color},${book.color}cc)`,border:m?`3px solid ${C.warn}`:f?`3px solid ${C.ok}`:co?`3px solid ${C.ok}44`:"3px solid transparent",boxShadow:m?`0 0 10px ${C.warn}44`:"0 2px 4px #00000012",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"space-between",padding:"6px 3px",transition:"all .3s"}}>
+    <div style={{width:44,height:120,borderRadius:"4px 4px 2px 2px",background:`linear-gradient(180deg,${book.color},${book.color}cc)`,border:m?`3px solid ${C.err}`:f?`3px solid ${C.ok}`:co?`3px solid ${C.ok}44`:"3px solid transparent",boxShadow:m?`0 0 12px ${C.err}55`:"0 2px 4px #00000012",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"space-between",padding:"6px 3px",transition:"all .3s"}}>
       <div style={{width:16,height:16,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>{(co||f)?<Chk/>:m?<Wrn/>:null}</div>
       <span style={{writingMode:"vertical-rl",textOrientation:"mixed",fontSize:8,color:"#fff",fontWeight:800,fontFamily:F,textShadow:"0 1px 2px #00000033",letterSpacing:.5}}>{book.call}</span>
     </div>
@@ -355,7 +355,7 @@ function Settings({celeb,setCeleb,rm,setRm,onClose}){
 // ── Celebration ──
 function Celebrate({level,rm,onNext,onBreak,earnedBadges=[]}){
   const [show,setShow]=useState(false);
-  useEffect(()=>{setTimeout(()=>setShow(true),200)},[]);
+  useEffect(()=>{const t=setTimeout(()=>setShow(true),900);return()=>clearTimeout(t);},[]);
   return <div style={{animation:rm?"none":"fadeIn .5s ease"}}>
     {level==="calm"&&<Card style={{textAlign:"center",padding:"32px 18px",border:`2px solid ${C.calm}33`}}>
       <div style={{fontSize:48,marginBottom:10,transition:"transform .5s",transform:show?"scale(1)":"scale(.8)"}}>✓</div>
@@ -589,8 +589,8 @@ export default function BuddyWork(){
             <div style={{flex:1,padding:"11px 8px",borderRadius:10,background:C.okL,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
               <Chk/><span style={{fontSize:16,fontWeight:900,color:C.ok,fontFamily:F}}>4 correct</span>
             </div>
-            <div style={{flex:1,padding:"11px 8px",borderRadius:10,background:C.warnL,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
-              <Wrn/><span style={{fontSize:16,fontWeight:900,color:C.warn,fontFamily:F}}>2 wrong</span>
+            <div style={{flex:1,padding:"11px 8px",borderRadius:10,background:C.errL,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+              <Wrn/><span style={{fontSize:16,fontWeight:900,color:C.err,fontFamily:F}}>2 wrong</span>
             </div>
           </div>
           <div style={{marginTop:10}}><Shelf books={BOOKS} statuses={RS}/></div>
@@ -601,9 +601,9 @@ export default function BuddyWork(){
         {step==="fix1"&&<div style={{animation:anim}}>
           <Hero icon="👆" text="Take out this book"/>
           <div style={{marginTop:10}}><Shelf books={BOOKS} statuses={["correct","correct","correct","misplaced","none","correct"]} arrows={[null,null,null,"Take out",null,null]}/></div>
-          <div style={{marginTop:12,background:C.warnL,borderRadius:16,padding:"14px 16px",border:`1px solid ${C.warnB}`,display:"flex",alignItems:"center",gap:12}}>
-            <div style={{width:38,height:38,borderRadius:11,background:`${C.warn}18`,border:`1px solid ${C.warn}30`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Wrn/></div>
-            <div><div style={{fontSize:15,fontWeight:800,color:C.warn,fontFamily:F}}>FIC HER</div><div style={{fontSize:12,fontWeight:600,color:C.warn,opacity:.75,marginTop:1}}>Take it off the shelf and hold it</div></div>
+          <div style={{marginTop:12,background:C.errL,borderRadius:16,padding:"14px 16px",border:`1px solid ${C.err}33`,display:"flex",alignItems:"center",gap:12}}>
+            <div style={{width:38,height:38,borderRadius:11,background:`${C.err}15`,border:`1px solid ${C.err}30`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Wrn/></div>
+            <div><div style={{fontSize:15,fontWeight:800,color:C.err,fontFamily:F}}>FIC HER</div><div style={{fontSize:12,fontWeight:600,color:C.err,opacity:.75,marginTop:1}}>Take it off the shelf and hold it</div></div>
           </div>
           <div style={{marginTop:12}}><Btn onClick={next} icon="✅">Done</Btn></div>
         </div>}
@@ -612,9 +612,9 @@ export default function BuddyWork(){
         {step==="fix2"&&<div style={{animation:anim}}>
           <Hero icon="👆" text="Take out this book too"/>
           <div style={{marginTop:10}}><Shelf books={[BOOKS[0],BOOKS[1],BOOKS[2],GAP,BOOKS[4],BOOKS[5]]} statuses={["correct","correct","correct","none","misplaced","correct"]} arrows={[null,null,null,null,"Take out",null]}/></div>
-          <div style={{marginTop:12,background:C.warnL,borderRadius:16,padding:"14px 16px",border:`1px solid ${C.warnB}`,display:"flex",alignItems:"center",gap:12}}>
-            <div style={{width:38,height:38,borderRadius:11,background:`${C.warn}18`,border:`1px solid ${C.warn}30`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Wrn/></div>
-            <div><div style={{fontSize:15,fontWeight:800,color:C.warn,fontFamily:F}}>FIC DIC</div><div style={{fontSize:12,fontWeight:600,color:C.warn,opacity:.75,marginTop:1}}>Hold both books in your hands</div></div>
+          <div style={{marginTop:12,background:C.errL,borderRadius:16,padding:"14px 16px",border:`1px solid ${C.err}33`,display:"flex",alignItems:"center",gap:12}}>
+            <div style={{width:38,height:38,borderRadius:11,background:`${C.err}15`,border:`1px solid ${C.err}30`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Wrn/></div>
+            <div><div style={{fontSize:15,fontWeight:800,color:C.err,fontFamily:F}}>FIC DIC</div><div style={{fontSize:12,fontWeight:600,color:C.err,opacity:.75,marginTop:1}}>Hold both books in your hands</div></div>
           </div>
           <div style={{marginTop:12}}><Btn onClick={next} icon="✅">Done</Btn></div>
         </div>}
