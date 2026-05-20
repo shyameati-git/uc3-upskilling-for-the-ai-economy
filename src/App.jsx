@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 
 // ── Constants ──
-const STEPS = ["welcome","overview","go_aisle","pick_shelf","camera","scanning","results","fix1","fix2","fix3","fix4","complete"];
+const STEPS = ["greeting","welcome","overview","go_aisle","pick_shelf","camera","scanning","results","fix1","fix2","fix3","fix4","complete"];
 const VOICE = {
+  greeting:"Good morning, Dylan! Today you have one task — shelf scan in Aisle 5. You'll walk to the aisle, scan the shelf, and fix any books out of order. You've got this. Tap Let's go when you're ready.",
   welcome:"Your tasks for today are ready. Tap Shelf Scan to begin.",
   overview:"Shelf Scan. Go to the aisle, scan the shelf, fix any books out of order. Tap Start.",
   go_aisle:"Walk to Aisle 5 in the Fiction section. Look for the number 5 above the shelves. Tap I'm here when you arrive.",
@@ -60,6 +61,65 @@ function Pips({cur,total}){
   return <div style={{display:"flex",gap:4,justifyContent:"center",padding:"4px 0"}}>{Array.from({length:total},(_,i)=><div key={i} style={{width:i===cur?26:8,height:8,borderRadius:4,background:i===cur?C.calm:i<cur?C.calm+"55":C.bdr,transition:"all .3s"}}/>)}</div>
 }
 function Card({children,style}){return<div style={{background:C.card,borderRadius:16,padding:18,border:`1.5px solid ${C.bdr}`,...style}}>{children}</div>}
+
+// ── Opening / Greeting Screen ──
+function Greeting({onStart,rm}){
+  const [show,setShow]=useState(false);
+  useEffect(()=>{const t=setTimeout(()=>setShow(true),150);return()=>clearTimeout(t)},[]);
+  const tr=(delay)=>rm?"none":`all .45s cubic-bezier(.34,1.56,.64,1) ${delay}s`;
+  const fade=(delay)=>rm?"none":`opacity .4s ease ${delay}s`;
+  return(
+    <div style={{animation:rm?"none":"fadeIn .4s ease"}}>
+      {/* Avatar + greeting */}
+      <div style={{textAlign:"center",padding:"32px 16px 20px"}}>
+        <div style={{width:90,height:90,borderRadius:"50%",background:`linear-gradient(135deg,${C.calm},#3a7a6a)`,margin:"0 auto 18px",display:"flex",alignItems:"center",justifyContent:"center",fontSize:46,boxShadow:`0 8px 28px ${C.calm}44`,opacity:show?1:0,transform:show?"scale(1)":"scale(.6)",transition:tr(0)}}>
+          👷
+        </div>
+        <div style={{fontSize:28,fontWeight:900,color:C.text,fontFamily:F,lineHeight:1.25,opacity:show?1:0,transform:show?"translateY(0)":"translateY(10px)",transition:tr(.18)}}>
+          Good morning,<br/>Dylan! 👋
+        </div>
+        <div style={{fontSize:14,color:C.sub,fontWeight:700,marginTop:7,fontFamily:F,opacity:show?1:0,transition:fade(.36)}}>
+          Tuesday · You've got this
+        </div>
+      </div>
+
+      {/* Badges row */}
+      <div style={{display:"flex",gap:7,justifyContent:"center",marginBottom:20,flexWrap:"wrap",opacity:show?1:0,transition:fade(.44)}}>
+        {[{i:"🔥",l:"3-day streak"},{i:"⭐",l:"Top worker"},{i:"✅",l:"On time"}].map((b,j)=>(
+          <div key={j} style={{padding:"7px 12px",borderRadius:20,background:C.card,border:`1.5px solid ${C.bdr}`,display:"flex",alignItems:"center",gap:5}}>
+            <span style={{fontSize:15}}>{b.i}</span>
+            <span style={{fontSize:11,fontWeight:700,color:C.sub,fontFamily:F}}>{b.l}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Today's task card */}
+      <Card style={{padding:"18px",marginBottom:20,opacity:show?1:0,transform:show?"translateY(0)":"translateY(12px)",transition:tr(.52)}}>
+        <div style={{fontSize:10,fontWeight:800,color:C.sub,letterSpacing:1,marginBottom:12}}>TODAY'S TASK</div>
+        <div style={{display:"flex",alignItems:"center",gap:14}}>
+          <div style={{width:60,height:60,borderRadius:16,background:C.calmL,display:"flex",alignItems:"center",justifyContent:"center",fontSize:30,flexShrink:0}}>📚</div>
+          <div style={{flex:1}}>
+            <div style={{fontSize:19,fontWeight:800,color:C.text,fontFamily:F}}>Shelf Scan</div>
+            <div style={{fontSize:13,color:C.sub,fontWeight:600,marginTop:2}}>Aisle 5 · Fiction A–F</div>
+            <div style={{marginTop:8,display:"flex",gap:5}}>
+              {[{i:"🚶",l:"Go"},{i:"📷",l:"Scan"},{i:"🔄",l:"Fix"}].map((s,k)=>(
+                <div key={k} style={{padding:"4px 9px",borderRadius:7,background:C.bg,border:`1.5px solid ${C.bdr}`,display:"flex",alignItems:"center",gap:4}}>
+                  <span style={{fontSize:11}}>{s.i}</span>
+                  <span style={{fontSize:10,fontWeight:800,color:C.sub,fontFamily:F}}>{s.l}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      {/* CTA */}
+      <div style={{opacity:show?1:0,transform:show?"translateY(0)":"translateY(8px)",transition:tr(.62)}}>
+        <Btn onClick={onStart} icon="🚀">Let's go!</Btn>
+      </div>
+    </div>
+  );
+}
 
 // ── Check / Warning shapes ──
 const Chk=()=><svg width="18" height="18" viewBox="0 0 20 20"><circle cx="10" cy="10" r="9" fill={C.ok}/><path d="M6 10l3 3 5-5" stroke="#fff" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>;
@@ -280,7 +340,10 @@ export default function BuddyWork(){
       <div style={{width:"100%",maxWidth:400,padding:"16px 16px 32px",display:"flex",flexDirection:"column",gap:12}}>
         <Header reset={reset} si={si} setShowSet={setShowSet}/>
         <VoiceBar v={v}/>
-        {si>0&&si<STEPS.length-1&&<Pips cur={si-1} total={STEPS.length-2}/>}
+        {si>2&&si<STEPS.length-1&&<Pips cur={si-3} total={STEPS.length-4}/>}
+
+        {/* GREETING */}
+        {step==="greeting"&&<Greeting onStart={next} rm={rm}/>}
 
         {/* WELCOME */}
         {step==="welcome"&&<div style={{animation:anim}}>
