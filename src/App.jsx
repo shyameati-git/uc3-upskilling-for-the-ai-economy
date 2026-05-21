@@ -642,6 +642,7 @@ export default function BuddyWork(){
   const [earnedBadges,setEarnedBadges]=useState([]);
   const [showFlash,setShowFlash]=useState(false);
   const step=STEPS[si];
+  const prevStepRef=useRef(null);
   const v=useVoice();
 
   const next=useCallback(()=>setSi(i=>Math.min(i+1,STEPS.length-1)),[]);
@@ -657,9 +658,12 @@ export default function BuddyWork(){
   // Voice on step change
   useEffect(()=>{const t=setTimeout(()=>v.say(VOICE[step]),300);return()=>clearTimeout(t)},[step]);
 
-  // Step celebration toasts
+  // Step celebration toasts — show when LEAVING a step, not arriving
   useEffect(()=>{
-    const msg=STEP_TOASTS[step];
+    const prevStep=prevStepRef.current;
+    prevStepRef.current=step;
+    if(!prevStep){return;}
+    const msg=STEP_TOASTS[prevStep];
     if(!msg){setToast(null);return;}
     setToast(msg);
     const t=setTimeout(()=>setToast(null),1800);
