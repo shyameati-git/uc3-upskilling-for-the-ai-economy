@@ -898,7 +898,7 @@ function Styles(){
 }
 
 // ── App Shell with routing ──
-const navStyle = {display:"flex",gap:16,padding:"10px 20px",background:"#fff",borderBottom:"1px solid #D4E3DC",fontFamily:"'Nunito',sans-serif"};
+const navStyle = {display:"flex",gap:16,padding:"10px 20px",background:"#fff",borderBottom:"1px solid #D4E3DC",fontFamily:"'Nunito',sans-serif",justifyContent:"center"};
 const linkStyle = {textDecoration:"none",fontWeight:700,fontSize:14,color:"#527064"};
 const activeLinkStyle = {color:"#38836F",borderBottom:"2px solid #38836F",paddingBottom:2};
 
