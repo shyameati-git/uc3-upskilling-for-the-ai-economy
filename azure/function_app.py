@@ -378,7 +378,7 @@ def complete_task(req: func.HttpRequest) -> func.HttpResponse:
 
 # ============================================================
 # ENDPOINT 5: VOICE SCRIPT — Generate coaching text
-# Uses Azure OpenAI to create adaptive voice instructions
+# Uses Azure AI Foundry to create adaptive voice instructions
 # ============================================================
 
 @app.route(route="voice-script", methods=["POST"])
@@ -403,12 +403,12 @@ def voice_script(req: func.HttpRequest) -> func.HttpResponse:
         context = body.get("context", {})
 
         # For hackathon: return pre-written scripts
-        # In production: call Azure OpenAI for adaptive generation
+        # In production: call Azure AI Foundry for adaptive generation
         
         # Check if we should use AI generation
         use_ai = body.get("useAI", False)
         
-        if use_ai and os.environ.get("OPENAI_KEY"):
+        if use_ai and os.environ.get("FOUNDRY_KEY") and os.environ.get("FOUNDRY_ENDPOINT"):
             voice_text = generate_ai_voice_script(
                 task_type, step_id, support_level, context
             )
@@ -460,14 +460,14 @@ def get_preset_voice_script(task_type, step_id, support_level, context):
 
 
 def generate_ai_voice_script(task_type, step_id, support_level, context):
-    """Use Azure OpenAI to generate adaptive voice coaching."""
+    """Use Azure AI Foundry to generate adaptive voice coaching."""
     
     from openai import AzureOpenAI
 
     client = AzureOpenAI(
-        api_key=os.environ.get("OPENAI_KEY"),
-        api_version="2024-02-01",
-        azure_endpoint=os.environ.get("OPENAI_ENDPOINT"),
+        api_key=os.environ.get("FOUNDRY_KEY"),
+        api_version=os.environ.get("FOUNDRY_API_VERSION", "2024-10-21"),
+        azure_endpoint=os.environ.get("FOUNDRY_ENDPOINT"),
     )
 
     level_desc = {
@@ -477,7 +477,7 @@ def generate_ai_voice_script(task_type, step_id, support_level, context):
     }
 
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model=os.environ.get("FOUNDRY_DEPLOYMENT", "gpt-5-4-mini"),
         messages=[
             {
                 "role": "system",
@@ -500,7 +500,7 @@ Rules:
                 "content": f"Task: {task_type}, Step: {step_id}, Context: {json.dumps(context)}"
             }
         ],
-        max_tokens=150,
+        max_completion_tokens=150,
         temperature=0.3,
     )
 
@@ -533,9 +533,9 @@ def chat(req: func.HttpRequest) -> func.HttpResponse:
             )
 
         # Prefer Azure AI Foundry credentials, fall back to legacy Azure OpenAI
-        api_key = os.environ.get("FOUNDRY_API_KEY") or os.environ.get("OPENAI_KEY")
+        api_key = os.environ.get("FOUNDRY_KEY") or os.environ.get("OPENAI_KEY")
         endpoint = os.environ.get("FOUNDRY_ENDPOINT") or os.environ.get("OPENAI_ENDPOINT")
-        model = os.environ.get("FOUNDRY_MODEL", "gpt-4o")
+        model = os.environ.get("FOUNDRY_DEPLOYMENT") or os.environ.get("FOUNDRY_MODEL", "gpt-4o")
 
         if not api_key:
             return func.HttpResponse(

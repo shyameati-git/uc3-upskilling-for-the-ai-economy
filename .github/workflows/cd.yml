@@ -1,0 +1,175 @@
+name: CD
+
+# Provisions Azure infrastructure (azure/deploy.sh) then deploys backend + frontend.
+# Runs on push to develop or main (PR merges count as pushes).
+#
+# ============================================================
+# Required GitHub repository secrets
+# ============================================================
+#   AZURE_CLIENT_ID         App (client) ID of the federated-credential app registration
+#   AZURE_TENANT_ID         Entra tenant ID
+#   AZURE_SUBSCRIPTION_ID   Subscription that hosts the UseCase3 resource group
+#
+# One-time setup for OIDC (no client secret needed):
+#   1. az ad app create --display-name buddywork-gh-oidc
+#   2. Create a service principal for the app, grant it Contributor on
+#      /subscriptions/<SUB_ID>/resourceGroups/UseCase3
+#   3. Add a federated credential on the app for each branch ref:
+#        subject: repo:fsi-hack4autism/uc3-upskilling-for-the-ai-economy:ref:refs/heads/develop
+#        subject: repo:fsi-hack4autism/uc3-upskilling-for-the-ai-economy:ref:refs/heads/main
+#      issuer: https://token.actions.githubusercontent.com
+#      audience: api://AzureADTokenExchange
+#   4. Save the three IDs above as repo secrets.
+#
+# Note: do not set a job-level GitHub environment unless you also create
+# matching environment-based federated credentials, because that changes the
+# OIDC subject to repo:<owner>/<repo>:environment:<name>.
+#
+# Optional repository variables:
+#   AZURE_FUNCTIONAPP_NAME      (default buddywork-api)
+#   AZURE_STATIC_WEB_APP_NAME   (default buddywork)
+#   AZURE_RESOURCE_GROUP        (default UseCase3)
+
+on:
+  push:
+    branches:
+      - develop
+      - main
+
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AZURE_FUNCTIONAPP_NAME: ${{ vars.AZURE_FUNCTIONAPP_NAME || 'buddywork-api' }}
+  AZURE_STATIC_WEB_APP_NAME: ${{ vars.AZURE_STATIC_WEB_APP_NAME || 'buddywork' }}
+  AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP || 'UseCase3' }}
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION: "20"
+
+jobs:
+  provision:
+    name: Provision Azure infrastructure
+    runs-on: ubuntu-latest
+    outputs:
+      swa_hostname: ${{ steps.outputs.outputs.swa_hostname }}
+      function_app: ${{ steps.outputs.outputs.function_app }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Run deploy.sh (provision/update infra)
+        run: |
+          chmod +x azure/deploy.sh
+          ./azure/deploy.sh
+
+      - name: Capture deployment outputs
+        id: outputs
+        run: |
+          SWA_HOSTNAME=$(az staticwebapp show \
+            --name "$AZURE_STATIC_WEB_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --query defaultHostname -o tsv)
+          echo "swa_hostname=$SWA_HOSTNAME" >> "$GITHUB_OUTPUT"
+          echo "function_app=$AZURE_FUNCTIONAPP_NAME" >> "$GITHUB_OUTPUT"
+          echo "SWA hostname: https://$SWA_HOSTNAME"
+          echo "Function App: $AZURE_FUNCTIONAPP_NAME"
+
+  deploy-backend:
+    name: Deploy Azure Functions
+    needs: provision
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+          cache-dependency-path: azure/requirements.txt
+
+      - name: Install dependencies into .python_packages
+        run: |
+          python -m pip install --upgrade pip
+          pip install --target=".python_packages/lib/site-packages" -r requirements.txt
+        working-directory: azure
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy to Azure Functions
+        uses: Azure/functions-action@v1
+        with:
+          app-name: ${{ needs.provision.outputs.function_app }}
+          package: azure
+          scm-do-build-during-deployment: false
+          enable-oryx-build: false
+
+  deploy-frontend:
+    name: Deploy Static Web App
+    needs: provision
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Get Static Web App deployment token
+        id: swa_token
+        run: |
+          TOKEN=$(az staticwebapp secrets list \
+            --name "$AZURE_STATIC_WEB_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --query properties.apiKey -o tsv)
+          echo "::add-mask::$TOKEN"
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy to Azure Static Web Apps
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ steps.swa_token.outputs.token }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: "upload"
+          app_location: "build"
+          skip_app_build: true
+
+      - name: Summary
+        run: |
+          echo "### Deployed" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Frontend: https://${{ needs.provision.outputs.swa_hostname }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Backend:  https://${{ needs.provision.outputs.function_app }}.azurewebsites.net" >> "$GITHUB_STEP_SUMMARY"
