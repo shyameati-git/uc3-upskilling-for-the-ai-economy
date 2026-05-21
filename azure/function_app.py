@@ -378,7 +378,7 @@ def complete_task(req: func.HttpRequest) -> func.HttpResponse:
 
 # ============================================================
 # ENDPOINT 5: VOICE SCRIPT — Generate coaching text
-# Uses Azure OpenAI to create adaptive voice instructions
+# Uses Azure AI Foundry to create adaptive voice instructions
 # ============================================================
 
 @app.route(route="voice-script", methods=["POST"])
@@ -403,12 +403,12 @@ def voice_script(req: func.HttpRequest) -> func.HttpResponse:
         context = body.get("context", {})
 
         # For hackathon: return pre-written scripts
-        # In production: call Azure OpenAI for adaptive generation
+        # In production: call Azure AI Foundry for adaptive generation
         
         # Check if we should use AI generation
         use_ai = body.get("useAI", False)
         
-        if use_ai and os.environ.get("OPENAI_KEY"):
+        if use_ai and os.environ.get("FOUNDRY_KEY") and os.environ.get("FOUNDRY_ENDPOINT"):
             voice_text = generate_ai_voice_script(
                 task_type, step_id, support_level, context
             )
@@ -460,14 +460,14 @@ def get_preset_voice_script(task_type, step_id, support_level, context):
 
 
 def generate_ai_voice_script(task_type, step_id, support_level, context):
-    """Use Azure OpenAI to generate adaptive voice coaching."""
+    """Use Azure AI Foundry to generate adaptive voice coaching."""
     
     from openai import AzureOpenAI
 
     client = AzureOpenAI(
-        api_key=os.environ.get("OPENAI_KEY"),
-        api_version="2024-02-01",
-        azure_endpoint=os.environ.get("OPENAI_ENDPOINT"),
+        api_key=os.environ.get("FOUNDRY_KEY"),
+        api_version=os.environ.get("FOUNDRY_API_VERSION", "2024-10-21"),
+        azure_endpoint=os.environ.get("FOUNDRY_ENDPOINT"),
     )
 
     level_desc = {
@@ -477,7 +477,7 @@ def generate_ai_voice_script(task_type, step_id, support_level, context):
     }
 
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model=os.environ.get("FOUNDRY_DEPLOYMENT", "gpt-5-4-mini"),
         messages=[
             {
                 "role": "system",
@@ -500,7 +500,7 @@ Rules:
                 "content": f"Task: {task_type}, Step: {step_id}, Context: {json.dumps(context)}"
             }
         ],
-        max_tokens=150,
+        max_completion_tokens=150,
         temperature=0.3,
     )
 
@@ -508,7 +508,118 @@ Rules:
 
 
 # ============================================================
-# ENDPOINT 6: WORKER PROFILE — Get/set preferences
+# ENDPOINT 6: CHAT — AI conversation for worker help
+# ============================================================
+
+@app.route(route="chat", methods=["POST"])
+def chat(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    AI conversation endpoint for in-task help.
+
+    Input:  { "message": "...", "step": "...", "workerName": "Dylan" }
+    Output: { "reply": "..." }
+    """
+    try:
+        body = req.get_json()
+        message = body.get("message", "")
+        step = body.get("step", "")
+        worker_name = body.get("workerName", "Dylan")
+
+        if not message:
+            return func.HttpResponse(
+                json.dumps({"error": "No message provided"}),
+                status_code=400,
+                mimetype="application/json"
+            )
+
+        # Prefer Azure AI Foundry credentials, fall back to legacy Azure OpenAI
+        api_key = os.environ.get("FOUNDRY_KEY") or os.environ.get("OPENAI_KEY")
+        endpoint = os.environ.get("FOUNDRY_ENDPOINT") or os.environ.get("OPENAI_ENDPOINT")
+        model = os.environ.get("FOUNDRY_DEPLOYMENT") or os.environ.get("FOUNDRY_MODEL", "gpt-4o")
+
+        if not api_key:
+            return func.HttpResponse(
+                json.dumps({"reply": "I'm here to help. The AI service needs to be configured — ask a supervisor to add the API key."}),
+                mimetype="application/json"
+            )
+
+        from openai import AzureOpenAI
+
+        client = AzureOpenAI(
+            api_key=api_key,
+            azure_endpoint=endpoint,
+            api_version="2024-05-01-preview",
+        )
+
+        system_prompt = f"""You are BuddyWork, a practical AI job coach helping {worker_name}, an autistic library worker.
+    Current task step: {step}
+
+    Primary goal:
+    - Help the worker complete real library procedures safely and accurately.
+    - Reduce ambiguity and cognitive load while preserving autonomy.
+
+    Known task context (use when relevant):
+    - Shelf Scan at Aisle 5, Fiction A-F
+    - Books are sorted alphabetically: FIC ADA, FIC BRA, FIC CLA, FIC DIC, FIC HER, FIC LEG
+    - FIC HER and FIC DIC are swapped and need to be fixed
+    - D comes before H alphabetically
+
+    How to respond:
+    - Use clear, concrete language and avoid jargon.
+    - Be calm, respectful, and direct. Do not use performative praise.
+    - Prefer action-first guidance for in-the-moment help.
+    - Give numbered steps for procedures and troubleshooting.
+    - Keep answers concise by default, but expand when the worker asks for detail.
+    - If the request is unclear, ask one focused clarifying question.
+    - If there are multiple valid ways, offer 2-3 options with tradeoffs.
+    - If the worker seems overwhelmed, briefly validate and break work into the next smallest step.
+    - Include simple checks ("You should see...", "If not, then...") when useful.
+
+    Boundaries:
+    - Do not invent library policy details; state assumptions when uncertain.
+    - Do not provide legal or medical advice.
+
+    Formatting preference:
+    - For quick questions: short direct answer.
+    - For procedures: numbered checklist with optional "If stuck" fallback."""
+
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": message},
+            ],
+            max_completion_tokens=220,
+            temperature=0.45,
+        )
+
+        reply = response.choices[0].message.content.strip()
+
+        return func.HttpResponse(
+            json.dumps({"reply": reply}),
+            status_code=200,
+            mimetype="application/json",
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type",
+            }
+        )
+
+    except Exception as e:
+        logging.error(f"Chat error: {str(e)}")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            status_code=500,
+            mimetype="application/json",
+            headers={
+                "Access-Control-Allow-Origin": "*",
+            }
+        )
+
+
+# ============================================================
+# ENDPOINT 7: WORKER PROFILE — Get/set preferences
 # ============================================================
 
 @app.route(route="worker", methods=["GET", "POST"])
