@@ -45,6 +45,28 @@ const BADGES = [
 
 const API_BASE_URL = (process.env.REACT_APP_API_BASE_URL || "http://localhost:7071").replace(/\/$/, "");
 
+// ── Admin Panel constants ──
+const LVL_COLORS = {1:"#3d9e68",2:"#d4860a",3:"#c0392b"};
+const LVL_LABELS = {1:"Low Support",2:"Medium Support",3:"High Support"};
+const FEAT_ICONS  = {text:"📝",voice:"🎤",image:"📷",both:"✨"};
+
+function loadProfile() {
+  return {
+    name:     localStorage.getItem('p_name')     || 'Dylan',
+    level:    parseInt(localStorage.getItem('p_level') || '2'),
+    useCase:  localStorage.getItem('p_usecase')  || 'library',
+    features: JSON.parse(localStorage.getItem('p_features') || '["text","image"]'),
+    apiKey:   process.env.REACT_APP_OPENAI_API_KEY || localStorage.getItem('p_apikey') || '',
+  };
+}
+function persistProfile(p) {
+  localStorage.setItem('p_name',     p.name);
+  localStorage.setItem('p_level',    String(p.level));
+  localStorage.setItem('p_usecase',  p.useCase);
+  localStorage.setItem('p_features', JSON.stringify(p.features));
+  localStorage.setItem('p_apikey',   p.apiKey);
+}
+
 // ── Voice Hook ──
 function useVoice(){
   const uRef=useRef(null);
@@ -87,6 +109,13 @@ function Pips({cur,total}){
   return <div style={{display:"flex",gap:5,justifyContent:"center",padding:"2px 0"}}>{Array.from({length:total},(_,i)=><div key={i} style={{width:i===cur?22:7,height:7,borderRadius:4,background:i===cur?C.calm:i<cur?C.calm+"60":C.bdr,transition:"all .4s cubic-bezier(.34,1.56,.64,1)"}}/>)}</div>
 }
 function Card({children,style}){return<div style={{background:C.card,borderRadius:20,padding:20,border:`1px solid ${C.bdr}`,boxShadow:shadow.card,...style}}>{children}</div>}
+function Section({title,hint,children}){
+  return <div style={{marginBottom:24}}>
+    <div style={{fontSize:11,fontWeight:800,color:C.sub,letterSpacing:1,marginBottom:hint?4:10,fontFamily:F}}>{title}</div>
+    {hint&&<div style={{fontSize:12,color:C.sub,fontWeight:600,marginBottom:10,fontFamily:F}}>{hint}</div>}
+    {children}
+  </div>
+}
 
 // ── Opening / Greeting Screen ──
 function Greeting({onStart,rm}){
@@ -354,6 +383,126 @@ function Settings({celeb,setCeleb,rm,setRm,onClose}){
   </div>
 }
 
+// ── Admin Panel ──
+function AdminPanel({profile, celeb, setCeleb, rm, setRm, onSave, onClose}) {
+  const [name,     setName]     = useState(profile.name);
+  const [level,    setLevel]    = useState(profile.level);
+  const [useCase,  setUseCase]  = useState(profile.useCase);
+  const [features, setFeatures] = useState(profile.features);
+  const [apiKey,   setApiKey]   = useState(profile.apiKey);
+
+  function toggleFeat(f) {
+    if (f==='both') { setFeatures(p=>p.includes('both')?p.filter(x=>x!=='both'):['text','voice','image','both']); }
+    else            { setFeatures(p=>p.includes(f)?p.filter(x=>x!==f):[...p,f]); }
+  }
+
+  const inp = {padding:'12px 14px',borderRadius:10,border:`1.5px solid ${C.bdr}`,fontSize:15,fontFamily:F,color:C.text,background:C.card,outline:'none',width:'100%',boxSizing:'border-box'};
+
+  return <div style={{position:'fixed',inset:0,background:C.bg,overflowY:'auto',zIndex:200,fontFamily:F}}>
+    <div style={{width:'100%',maxWidth:420,margin:'0 auto',padding:'16px 16px 40px'}}>
+
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:24}}>
+        <div style={{fontSize:20,fontWeight:900,color:C.text}}>⚙ Admin Panel</div>
+        <button onClick={onClose} style={{padding:'8px 14px',borderRadius:10,border:`1.5px solid ${C.bdr}`,background:C.card,cursor:'pointer',fontSize:13,fontWeight:700,fontFamily:F,color:C.text}}>✕ Close</button>
+      </div>
+
+      <Section title="USER PROFILE">
+        <label style={{display:'flex',flexDirection:'column',gap:6,fontSize:13,fontWeight:700,color:C.sub,fontFamily:F}}>
+          Worker Name
+          <input value={name} onChange={e=>setName(e.target.value)} placeholder="Enter name…" style={inp}/>
+        </label>
+      </Section>
+
+      <Section title="SUPPORT LEVEL" hint="Choose how much step-by-step guidance this worker needs.">
+        <div style={{display:'flex',flexDirection:'column',gap:8}}>
+          {[
+            {l:1,desc:'Needs occasional reminders and guidance for new tasks',ui:'Standard text · All features'},
+            {l:2,desc:'Needs clear step-by-step instructions for most tasks',ui:'Larger text · Simplified layout'},
+            {l:3,desc:'Needs maximum simplification and one step at a time',ui:'Large text · One task · Break reminders'},
+          ].map(({l,desc,ui})=>(
+            <button key={l} onClick={()=>setLevel(l)} style={{display:'flex',alignItems:'center',gap:14,padding:'14px 16px',borderRadius:14,border:`2px solid ${level===l?LVL_COLORS[l]:C.bdr}`,background:level===l?LVL_COLORS[l]+'18':C.card,cursor:'pointer',textAlign:'left',fontFamily:F,width:'100%'}}>
+              <div style={{width:44,height:44,borderRadius:12,background:LVL_COLORS[l],display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,fontWeight:900,color:'#fff',flexShrink:0}}>L{l}</div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:15,fontWeight:800,color:C.text}}>{LVL_LABELS[l]}</div>
+                <div style={{fontSize:11,color:C.sub,fontWeight:600,marginTop:2}}>{desc}</div>
+                <div style={{fontSize:10,color:C.sub,fontWeight:600,marginTop:1,opacity:.7}}>{ui}</div>
+              </div>
+              {level===l&&<span style={{fontSize:18,color:LVL_COLORS[l]}}>✓</span>}
+            </button>
+          ))}
+        </div>
+      </Section>
+
+      <Section title="WORKPLACE" hint="Choose the worker's job environment.">
+        <div style={{display:'flex',gap:8}}>
+          {[
+            {key:'library',icon:'📚',name:'Library',desc:'Shelves & patrons'},
+            {key:'coffee',icon:'☕',name:'Coffee Shop',desc:'Orders & customers'},
+            {key:'swimming',icon:'🏊',name:'Swimming',desc:'Lessons & safety'},
+          ].map(uc=>(
+            <button key={uc.key} onClick={()=>setUseCase(uc.key)} style={{flex:1,padding:'12px 8px',borderRadius:14,border:`2px solid ${useCase===uc.key?C.calm:C.bdr}`,background:useCase===uc.key?C.calmL:C.card,cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:5,fontFamily:F}}>
+              <span style={{fontSize:24}}>{uc.icon}</span>
+              <span style={{fontSize:12,fontWeight:800,color:C.text}}>{uc.name}</span>
+              <span style={{fontSize:9,color:C.sub,fontWeight:600,textAlign:'center'}}>{uc.desc}</span>
+            </button>
+          ))}
+        </div>
+      </Section>
+
+      <Section title="AI FEATURES" hint="Choose how the AI communicates with the worker.">
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+          {[
+            {key:'text',icon:'📝',name:'Text',desc:'Written instructions'},
+            {key:'voice',icon:'🎤',name:'Voice',desc:'Spoken guidance'},
+            {key:'image',icon:'📷',name:'Image',desc:'Camera scanning'},
+            {key:'both',icon:'✨',name:'All Features',desc:'Full experience'},
+          ].map(f=>(
+            <button key={f.key} onClick={()=>toggleFeat(f.key)} style={{padding:'12px 8px',borderRadius:12,border:`2px solid ${features.includes(f.key)?C.calm:C.bdr}`,background:features.includes(f.key)?C.calmL:C.card,cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:4,fontFamily:F}}>
+              <span style={{fontSize:22}}>{f.icon}</span>
+              <span style={{fontSize:12,fontWeight:800,color:C.text}}>{f.name}</span>
+              <span style={{fontSize:9,color:C.sub,fontWeight:600,textAlign:'center'}}>{f.desc}</span>
+            </button>
+          ))}
+        </div>
+      </Section>
+
+      <Section title="API KEY" hint="Optional: OpenAI key for live AI coaching.">
+        <input value={apiKey} onChange={e=>setApiKey(e.target.value)} placeholder="sk-…" type="password" style={inp}/>
+      </Section>
+
+      <Section title="CELEBRATION STYLE">
+        <div style={{display:'flex',gap:7}}>
+          {[{id:'calm',ic:'✓',nm:'Calm',ds:'Checkmark only'},{id:'medium',ic:'⭐',nm:'Stars',ds:'Stars + streak'},{id:'full',ic:'🏆',nm:'Party',ds:'Full celebration'}].map(o=>(
+            <button key={o.id} onClick={()=>setCeleb(o.id)} style={{flex:1,padding:'12px 6px',borderRadius:12,border:celeb===o.id?`2px solid ${C.calm}`:`2px solid ${C.bdr}`,background:celeb===o.id?C.calmL:C.card,cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:3,fontFamily:F}}>
+              <span style={{fontSize:22}}>{o.ic}</span>
+              <span style={{fontSize:12,fontWeight:800,color:C.text}}>{o.nm}</span>
+              <span style={{fontSize:9,color:C.sub,fontWeight:600}}>{o.ds}</span>
+            </button>
+          ))}
+        </div>
+      </Section>
+
+      <Section title="MOTION">
+        <button onClick={()=>setRm(r=>!r)} style={{width:'100%',padding:'12px 14px',borderRadius:12,border:`2px solid ${C.bdr}`,background:C.card,cursor:'pointer',display:'flex',alignItems:'center',gap:10,fontFamily:F}}>
+          <span style={{fontSize:20}}>{rm?'🔇':'✨'}</span>
+          <div style={{textAlign:'left',flex:1}}>
+            <div style={{fontSize:13,fontWeight:800,color:C.text}}>{rm?'Reduced motion':'Animations on'}</div>
+            <div style={{fontSize:10,color:C.sub,fontWeight:600}}>Tap to toggle</div>
+          </div>
+          <div style={{width:40,height:22,borderRadius:11,padding:2,background:rm?C.calm:C.bdr,display:'flex',alignItems:'center',justifyContent:rm?'flex-end':'flex-start',transition:'all .2s'}}>
+            <div style={{width:18,height:18,borderRadius:'50%',background:'#fff'}}/>
+          </div>
+        </button>
+      </Section>
+
+      <button onClick={()=>onSave({name:name.trim()||'Dylan',level,useCase,features:features.length?features:['text'],apiKey})} style={{width:'100%',padding:'20px 24px',fontSize:18,fontWeight:800,fontFamily:F,border:'none',borderRadius:16,cursor:'pointer',background:C.calm,color:'#fff',boxShadow:`0 4px 14px ${C.calm}30`}}>
+        Save Profile
+      </button>
+      <div style={{height:32}}/>
+    </div>
+  </div>
+}
+
 // ── Celebration ──
 function Celebrate({level,rm,onNext,onBreak,earnedBadges=[]}){
   const [show,setShow]=useState(false);
@@ -474,6 +623,8 @@ export default function BuddyWork(){
   const [celeb,setCeleb]=useState("medium");
   const [rm,setRm]=useState(false);
   const [showSet,setShowSet]=useState(false);
+  const [showAdmin,setShowAdmin]=useState(false);
+  const [profile,setProfile]=useState(loadProfile);
   const [onBreak,setOnBreak]=useState(false);
   const [toast,setToast]=useState(null);
   const [earnedBadges,setEarnedBadges]=useState([]);
@@ -483,6 +634,13 @@ export default function BuddyWork(){
 
   const next=useCallback(()=>setSi(i=>Math.min(i+1,STEPS.length-1)),[]);
   const reset=useCallback(()=>{setSi(0);setProg(0);v.stop();setOnBreak(false);setEarnedBadges([])},[v]);
+
+  function handleSaveProfile(updated){
+    setProfile(updated);
+    persistProfile(updated);
+    v.setOn(updated.features.includes('voice')||updated.features.includes('both'));
+    setShowAdmin(false);
+  }
 
   // Voice on step change
   useEffect(()=>{const t=setTimeout(()=>v.say(VOICE[step]),300);return()=>clearTimeout(t)},[step]);
@@ -515,8 +673,9 @@ export default function BuddyWork(){
     <div style={{minHeight:"100vh",background:C.bg,fontFamily:F,display:"flex",justifyContent:"center"}}>
       <Styles/>
       {showSet&&<Settings celeb={celeb} setCeleb={setCeleb} rm={rm} setRm={setRm} onClose={()=>setShowSet(false)}/>}
+      {showAdmin&&<AdminPanel profile={profile} celeb={celeb} setCeleb={setCeleb} rm={rm} setRm={setRm} onSave={handleSaveProfile} onClose={()=>setShowAdmin(false)}/>}
       <div style={{width:"100%",maxWidth:400,padding:"16px 16px 0",paddingBottom:72,display:"flex",flexDirection:"column",gap:12}}>
-        <Header reset={reset} si={si} setShowSet={setShowSet}/>
+        <Header reset={reset} si={si} setShowSet={setShowSet} onAdminOpen={()=>setShowAdmin(true)} profile={profile}/>
         {onBreak
           ?<BreakScreen onResume={()=>setOnBreak(false)} rm={rm}/>
           :<>{si>2&&si<STEPS.length-1&&<Pips cur={si-3} total={STEPS.length-4}/>}
@@ -681,7 +840,7 @@ export default function BuddyWork(){
   );
 }
 
-function Header({reset,si,setShowSet}){
+function Header({reset,si,setShowSet,onAdminOpen,profile}){
   const iconBtn={width:36,height:36,borderRadius:11,border:`1px solid ${C.bdr}`,background:C.card,cursor:"pointer",fontSize:15,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:shadow.sm};
   return <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"2px 0"}}>
     <div style={{display:"flex",alignItems:"center",gap:10}}>
@@ -691,8 +850,12 @@ function Header({reset,si,setShowSet}){
         <div style={{fontSize:9.5,color:C.sub,fontWeight:700,letterSpacing:".8px",textTransform:"uppercase"}}>AI Job Coach</div>
       </div>
     </div>
-    <div style={{display:"flex",gap:6}}>
-      <button onClick={()=>setShowSet(true)} style={iconBtn}>⚙️</button>
+    <div style={{display:"flex",gap:6,alignItems:"center"}}>
+      {profile&&<div style={{padding:'3px 9px',borderRadius:8,background:LVL_COLORS[profile.level]+'22',border:`1.5px solid ${LVL_COLORS[profile.level]}55`}}>
+        <span style={{fontSize:11,fontWeight:800,color:LVL_COLORS[profile.level],fontFamily:F}}>L{profile.level} · {profile.name}</span>
+      </div>}
+      {onAdminOpen&&<button onClick={onAdminOpen} style={iconBtn} title="Admin Panel">⚙️</button>}
+      {!onAdminOpen&&<button onClick={()=>setShowSet(true)} style={iconBtn}>⚙️</button>}
       {si>0&&<button onClick={reset} style={iconBtn}>🏠</button>}
     </div>
   </div>
