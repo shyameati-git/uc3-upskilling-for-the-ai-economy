@@ -8,6 +8,7 @@
     "FOUNDRY_KEY": "paste-your-key-here",
     "FOUNDRY_ENDPOINT": "https://usecase3.cognitiveservices.azure.com/",
     "FOUNDRY_DEPLOYMENT": "gpt-5-4-mini",
+    "FOUNDRY_MODEL": "gpt-5-4-mini",
     "FOUNDRY_MODEL_NAME": "gpt-5.4-mini",
     "COSMOS_CONNECTION": "paste-your-connection-string-here",
     "STORAGE_CONNECTION": "paste-your-connection-string-here"

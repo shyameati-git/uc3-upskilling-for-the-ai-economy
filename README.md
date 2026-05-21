@@ -90,6 +90,19 @@ npm install
 npm start
 ```
 
+The frontend reads the backend base URL from `REACT_APP_API_BASE_URL`.
+
+- Local development default: `http://localhost:7071`
+- Azure example: `https://buddywork-api.azurewebsites.net`
+
+Copy `.env.local.example` to `.env.local` in the repo root for local overrides:
+
+```bash
+cp .env.local.example .env.local
+
+REACT_APP_API_BASE_URL=http://localhost:7071
+```
+
 ### Backend (Azure Functions)
 ```bash
 cd azure
@@ -97,6 +110,16 @@ test -f local.settings.json || cp local.settings.example.json local.settings.jso
 pip install -r requirements.txt
 func start
 ```
+
+Required Azure Function app settings for chat and voice generation:
+
+- `FOUNDRY_KEY`
+- `FOUNDRY_ENDPOINT`
+- `FOUNDRY_DEPLOYMENT`
+
+Optional compatibility setting:
+
+- `FOUNDRY_MODEL` (defaults to the deployment name when using `azure/deploy.sh`)
 
 ### CI/CD Pipelines
 
@@ -136,9 +159,11 @@ func azure functionapp publish buddywork-api
 cd ..
 
 # Deploy frontend
-npm run build
+REACT_APP_API_BASE_URL=https://buddywork-api.azurewebsites.net npm run build
 swa deploy ./build --app-name buddywork
 ```
+
+If you build the frontend in CI/CD, set `REACT_APP_API_BASE_URL` in the build environment so the deployed app calls the hosted Azure Functions backend.
 
 Notes:
 

@@ -500,7 +500,7 @@ Rules:
                 "content": f"Task: {task_type}, Step: {step_id}, Context: {json.dumps(context)}"
             }
         ],
-        max_tokens=150,
+        max_completion_tokens=150,
         temperature=0.3,
     )
 
@@ -533,9 +533,9 @@ def chat(req: func.HttpRequest) -> func.HttpResponse:
             )
 
         # Prefer Azure AI Foundry credentials, fall back to legacy Azure OpenAI
-        api_key = os.environ.get("FOUNDRY_API_KEY") or os.environ.get("OPENAI_KEY")
+        api_key = os.environ.get("FOUNDRY_KEY") or os.environ.get("OPENAI_KEY")
         endpoint = os.environ.get("FOUNDRY_ENDPOINT") or os.environ.get("OPENAI_ENDPOINT")
-        model = os.environ.get("FOUNDRY_MODEL", "gpt-4o")
+        model = os.environ.get("FOUNDRY_DEPLOYMENT") or os.environ.get("FOUNDRY_MODEL", "gpt-4o")
 
         if not api_key:
             return func.HttpResponse(
@@ -574,7 +574,7 @@ Response rules:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": message},
             ],
-            max_tokens=80,
+            max_completion_tokens=80,
             temperature=0.3,
         )
 
