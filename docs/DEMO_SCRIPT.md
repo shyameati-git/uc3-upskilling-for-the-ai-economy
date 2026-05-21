@@ -119,7 +119,7 @@
 
 **Vikas, fast:**
 
-> "Under the hood — React frontend, Unity WebGL for AR, Azure Functions for the sorting engine, Azure AI Vision for OCR, Azure OpenAI for adaptive coaching. Runs in a phone browser, no app store required."
+> "Under the hood — React frontend, Unity WebGL for AR, Azure Functions for the sorting engine, Azure AI Vision for OCR, Azure AI Foundry with GPT-5.4 mini for adaptive coaching. Runs in a phone browser, no app store required."
 
 **Advance.**
 

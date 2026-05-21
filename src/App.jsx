@@ -43,6 +43,8 @@ const BADGES = [
   {id:"ontime",icon:"⏱️",name:"On Time",desc:"Task done efficiently"},
 ];
 
+const API_BASE_URL = (process.env.REACT_APP_API_BASE_URL || "http://localhost:7071").replace(/\/$/, "");
+
 // ── Voice Hook ──
 function useVoice(){
   const uRef=useRef(null);
@@ -234,7 +236,7 @@ function AIAssistant({v, step}){
     setMsgs(m=>[...m,{role:"user",text:t}]);
     setInput("");setLoading(true);
     try{
-      const res=await fetch("http://localhost:7071/api/chat",{
+      const res=await fetch(`${API_BASE_URL}/api/chat`,{
         method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({message:t,step,workerName:"Dylan"}),
         signal:AbortSignal.timeout(5000),
