@@ -1,4 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { BrowserRouter as Router, Routes, Route, NavLink } from "react-router-dom";
+import './i18n/index.js';
+import Dashboard from './components/Dashboard/Dashboard';
 
 // ── Constants ──
 const STEPS = ["greeting","welcome","overview","go_aisle","pick_shelf","camera","scanning","results","fix1","fix2","fix3","fix4","complete"];
@@ -629,7 +632,7 @@ function CompleteFlash({onDone,rm}){
 // ══════════════════════════════════════
 // MAIN APP
 // ══════════════════════════════════════
-export default function BuddyWork(){
+function BuddyWork(){
   const [si,setSi]=useState(0);
   const [prog,setProg]=useState(0);
   const [celeb,setCeleb]=useState("medium");
@@ -892,4 +895,24 @@ function Styles(){
     *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
     body{margin:0}
   `}</style>
+}
+
+// ── App Shell with routing ──
+const navStyle = {display:"flex",gap:16,padding:"10px 20px",background:"#fff",borderBottom:"1px solid #D4E3DC",fontFamily:"'Nunito',sans-serif"};
+const linkStyle = {textDecoration:"none",fontWeight:700,fontSize:14,color:"#527064"};
+const activeLinkStyle = {color:"#38836F",borderBottom:"2px solid #38836F",paddingBottom:2};
+
+export default function App() {
+  return (
+    <Router>
+      <div style={navStyle}>
+        <NavLink to="/" end style={({isActive})=>({...linkStyle,...(isActive?activeLinkStyle:{})})}>👷 Worker App</NavLink>
+        <NavLink to="/dashboard" style={({isActive})=>({...linkStyle,...(isActive?activeLinkStyle:{})})}>📊 Dashboard</NavLink>
+      </div>
+      <Routes>
+        <Route path="/" element={<BuddyWork/>}/>
+        <Route path="/dashboard" element={<Dashboard/>}/>
+      </Routes>
+    </Router>
+  );
 }

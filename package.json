@@ -4,9 +4,18 @@
   "description": "AI Job Coach for Neurodivergent Workers",
   "private": true,
   "dependencies": {
+    "@mui/icons-material": "^9.0.1",
+    "@mui/material": "^9.0.1",
+    "antd": "^6.4.3",
+    "chart.js": "^4.5.1",
+    "i18next": "^26.2.0",
     "react": "^18.2.0",
+    "react-chartjs-2": "^5.3.1",
     "react-dom": "^18.2.0",
-    "react-scripts": "5.0.1"
+    "react-i18next": "^17.0.8",
+    "react-router-dom": "^7.15.1",
+    "react-scripts": "5.0.1",
+    "styled-components": "^6.4.2"
   },
   "scripts": {
     "start": "react-scripts start",
