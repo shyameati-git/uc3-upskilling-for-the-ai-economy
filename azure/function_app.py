@@ -589,7 +589,7 @@ def chat(req: func.HttpRequest) -> func.HttpResponse:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": message},
             ],
-            max_tokens=220,
+            max_completion_tokens=220,
             temperature=0.45,
         )
 
