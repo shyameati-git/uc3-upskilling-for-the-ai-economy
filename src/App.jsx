@@ -389,7 +389,6 @@ function AdminPanel({profile, celeb, setCeleb, rm, setRm, onSave, onClose}) {
   const [level,    setLevel]    = useState(profile.level);
   const [useCase,  setUseCase]  = useState(profile.useCase);
   const [features, setFeatures] = useState(profile.features);
-  const [apiKey,   setApiKey]   = useState(profile.apiKey);
 
   function toggleFeat(f) {
     if (f==='both') { setFeatures(p=>p.includes('both')?p.filter(x=>x!=='both'):['text','voice','image','both']); }
@@ -466,10 +465,6 @@ function AdminPanel({profile, celeb, setCeleb, rm, setRm, onSave, onClose}) {
         </div>
       </Section>
 
-      <Section title="API KEY" hint="Optional: OpenAI key for live AI coaching.">
-        <input value={apiKey} onChange={e=>setApiKey(e.target.value)} placeholder="sk-…" type="password" style={inp}/>
-      </Section>
-
       <Section title="CELEBRATION STYLE">
         <div style={{display:'flex',gap:7}}>
           {[{id:'calm',ic:'✓',nm:'Calm',ds:'Checkmark only'},{id:'medium',ic:'⭐',nm:'Stars',ds:'Stars + streak'},{id:'full',ic:'🏆',nm:'Party',ds:'Full celebration'}].map(o=>(
@@ -495,7 +490,7 @@ function AdminPanel({profile, celeb, setCeleb, rm, setRm, onSave, onClose}) {
         </button>
       </Section>
 
-      <button onClick={()=>onSave({name:name.trim()||'Dylan',level,useCase,features:features.length?features:['text'],apiKey})} style={{width:'100%',padding:'20px 24px',fontSize:18,fontWeight:800,fontFamily:F,border:'none',borderRadius:16,cursor:'pointer',background:C.calm,color:'#fff',boxShadow:`0 4px 14px ${C.calm}30`}}>
+      <button onClick={()=>onSave({name:name.trim()||'Dylan',level,useCase,features:features.length?features:['text'],apiKey:profile.apiKey})} style={{width:'100%',padding:'20px 24px',fontSize:18,fontWeight:800,fontFamily:F,border:'none',borderRadius:16,cursor:'pointer',background:C.calm,color:'#fff',boxShadow:`0 4px 14px ${C.calm}30`}}>
         Save Profile
       </button>
       <div style={{height:32}}/>
