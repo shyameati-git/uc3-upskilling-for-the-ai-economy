@@ -141,6 +141,8 @@ jobs:
 
       - name: Build
         run: npm run build
+        env:
+          REACT_APP_API_BASE_URL: https://${{ env.AZURE_FUNCTIONAPP_NAME }}.azurewebsites.net
 
       - name: Azure login (OIDC)
         uses: azure/login@v2

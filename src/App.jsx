@@ -43,7 +43,24 @@ const BADGES = [
   {id:"ontime",icon:"⏱️",name:"On Time",desc:"Task done efficiently"},
 ];
 
-const API_BASE_URL = (process.env.REACT_APP_API_BASE_URL || "http://localhost:7071").replace(/\/$/, "");
+// ── Smart API URL detection ──
+const getAPIBaseURL = () => {
+  if (process.env.REACT_APP_API_BASE_URL) {
+    return process.env.REACT_APP_API_BASE_URL.replace(/\/$/, "");
+  }
+  // Local development
+  if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+    return "http://localhost:7071";
+  }
+  // Production: deployed on azurestaticapps.net, use the Azure Functions API
+  if (window.location.hostname.includes("azurestaticapps.net")) {
+    return "https://buddywork-api.azurewebsites.net";
+  }
+  // Fallback
+  return "http://localhost:7071";
+};
+
+const API_BASE_URL = getAPIBaseURL();
 
 // ── Admin Panel constants ──
 const LVL_COLORS = {1:"#3d9e68",2:"#d4860a",3:"#c0392b"};
