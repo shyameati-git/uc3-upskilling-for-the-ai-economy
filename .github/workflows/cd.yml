@@ -14,12 +14,16 @@ name: CD
 #   1. az ad app create --display-name buddywork-gh-oidc
 #   2. Create a service principal for the app, grant it Contributor on
 #      /subscriptions/<SUB_ID>/resourceGroups/UseCase3
-#   3. Add a federated credential on the app for each branch:
+#   3. Add a federated credential on the app for each branch ref:
 #        subject: repo:fsi-hack4autism/uc3-upskilling-for-the-ai-economy:ref:refs/heads/develop
 #        subject: repo:fsi-hack4autism/uc3-upskilling-for-the-ai-economy:ref:refs/heads/main
-#      issuer:  https://token.actions.githubusercontent.com
+#      issuer: https://token.actions.githubusercontent.com
 #      audience: api://AzureADTokenExchange
 #   4. Save the three IDs above as repo secrets.
+#
+# Note: do not set a job-level GitHub environment unless you also create
+# matching environment-based federated credentials, because that changes the
+# OIDC subject to repo:<owner>/<repo>:environment:<name>.
 #
 # Optional repository variables:
 #   AZURE_FUNCTIONAPP_NAME      (default buddywork-api)
@@ -51,7 +55,6 @@ jobs:
   provision:
     name: Provision Azure infrastructure
     runs-on: ubuntu-latest
-    environment: ${{ github.ref_name == 'main' && 'production' || 'develop' }}
     outputs:
       swa_hostname: ${{ steps.outputs.outputs.swa_hostname }}
       function_app: ${{ steps.outputs.outputs.function_app }}
@@ -87,7 +90,6 @@ jobs:
     name: Deploy Azure Functions
     needs: provision
     runs-on: ubuntu-latest
-    environment: ${{ github.ref_name == 'main' && 'production' || 'develop' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -124,7 +126,6 @@ jobs:
     name: Deploy Static Web App
     needs: provision
     runs-on: ubuntu-latest
-    environment: ${{ github.ref_name == 'main' && 'production' || 'develop' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4

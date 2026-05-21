@@ -98,7 +98,32 @@ pip install -r requirements.txt
 func start
 ```
 
-### Deploy to Azure
+### CI/CD Pipelines
+
+This repo now deploys through GitHub Actions:
+
+- `CI` runs on every push and pull request to build the React frontend and validate/package the Azure Functions backend.
+- `CD` runs on pushes to `develop` and `main`.
+- `CD` first runs `azure/deploy.sh` to create or update Azure infrastructure, then deploys the backend and frontend apps.
+
+Required GitHub Actions repository secrets (already created):
+
+- `AZURE_CLIENT_ID`
+- `AZURE_TENANT_ID`
+- `AZURE_SUBSCRIPTION_ID`
+
+Optional GitHub Actions repository variables:
+
+- `AZURE_FUNCTIONAPP_NAME` (defaults to `buddywork-api`)
+- `AZURE_STATIC_WEB_APP_NAME` (defaults to `buddywork`)
+- `AZURE_RESOURCE_GROUP` (defaults to `UseCase3`)
+
+The CD workflow uses Azure OIDC via `azure/login@v2`, so it does not require a Function App publish profile or a stored Static Web Apps deployment token.
+
+### Deploy to Azure Manually
+
+Use this flow when you want to provision or update resources outside GitHub Actions.
+
 ```bash
 # Set up all Azure resources
 chmod +x azure/deploy.sh
@@ -114,6 +139,12 @@ cd ..
 npm run build
 swa deploy ./build --app-name buddywork
 ```
+
+Notes:
+
+- `azure/deploy.sh` is idempotent and can be rerun to reconcile the Azure resources used by the app.
+- In Git Bash, commands that pass Azure resource IDs or slash-prefixed values may require `MSYS_NO_PATHCONV=1` to avoid path rewriting.
+- The automated CD workflow is the preferred deployment path for `develop` and `main`.
 
 ### Tear Down Azure Resources
 
@@ -135,7 +166,7 @@ The script deletes each BuddyWork resource individually and purges soft-deleted 
 | Anthony | Unity Developer (AR) |
 | Gauransh | Backend (Python, APIs) |
 | Shyameati | AI/Vision Pipeline |
-| Joe Balderas | Azure Infrastructure |
+| Jorge Balderas | Azure Infrastructure |
 | Daniel | Cloud Services SME |
 | Jimintamin | Data / Access Management |
 | Aysu | Designer / Storyteller |
